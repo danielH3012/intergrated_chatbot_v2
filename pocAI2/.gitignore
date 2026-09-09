@@ -1,0 +1,32 @@
+# ==============================================================================
+# Environment Variables & Secret Files
+# ==============================================================================
+# Ignore all .env files in root and any subdirectories
+.env
+.env.*
+*.env
+*.env.*
+
+# Local environment files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Allow committing environment templates/examples
+!.env.example
+!.env*.example
+!.env.sample
+!.env*.sample
+!.env.template
+!.env*.template
+
+# ==============================================================================
+# Common Development & Build Artifacts (Optional / Recommended)
+# ==============================================================================
+node_modules/
+dist/
+build/
+*.log
+.DS_Store
+Thumbs.db
