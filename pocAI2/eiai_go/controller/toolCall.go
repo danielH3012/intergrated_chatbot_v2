@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -106,14 +107,29 @@ func NativeCavemanShrink(tools []mcp.Tool) []mcp.Tool {
 
 // 1. Setup & Connection
 func NewServerConnection() (*client.Client, error) {
-	serverScript, _ := filepath.Abs(filepath.Join("..", "mcp_server", "server.go"))
+	candidates := []string{
+		filepath.Join("..", "mcp_server"),
+		filepath.Join("..", "..", "mcp_server"),
+		filepath.Join(".", "mcp_server"),
+	}
+	var mcpDir string
+	for _, cand := range candidates {
+		abs, _ := filepath.Abs(cand)
+		if fi, err := os.Stat(filepath.Join(abs, "go.mod")); err == nil && !fi.IsDir() {
+			mcpDir = abs
+			break
+		}
+	}
+	if mcpDir == "" {
+		return nil, fmt.Errorf("mcp_server directory with go.mod not found in candidate paths: %v", candidates)
+	}
 
-	c, err := client.NewStdioMCPClient("go", nil, "run", serverScript)
+	c, err := client.NewStdioMCPClient("go", nil, "run", "-C", mcpDir, ".")
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	_, err = c.Initialize(ctx, mcp.InitializeRequest{})

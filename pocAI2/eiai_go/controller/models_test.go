@@ -583,4 +583,26 @@ I must query the assets first.
 	}
 }
 
+func TestNewServerConnection(t *testing.T) {
+	c, err := NewServerConnection()
+	if err != nil {
+		t.Fatalf("failed to connect to MCP server: %v", err)
+	}
+	defer c.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	toolsResp, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatalf("failed to list tools from MCP server: %v", err)
+	}
+
+	if len(toolsResp.Tools) == 0 {
+		t.Fatalf("expected tools from MCP server, got 0")
+	}
+
+	t.Logf("Successfully connected to MCP server and loaded %d tools!", len(toolsResp.Tools))
+}
+
 
