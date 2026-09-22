@@ -9,19 +9,23 @@ import (
 
 // HandleGetMe handles GET /api/auth/me.
 func (h *AuthHandler) HandleGetMe(c *fiber.Ctx) error {
-	userVal := c.Locals("user")
-	if userVal == nil {
-		return errs.Unauthorized("Missing or invalid authorization context").SendResponse(c)
+	identity := middleware.RequestIdentity(c)
+	if identity == nil {
+		return errs.Unauthorized("Missing or invalid authorization context (X-User-ID header required)").SendResponse(c)
 	}
 
-	claims, ok := userVal.(*middleware.JWTClaims)
-	if !ok || claims == nil {
-		return errs.Unauthorized("Invalid user identity in token").SendResponse(c)
-	}
-
-	user, err := h.svc.GetMe(c.Context(), claims.UserID)
+	user, err := h.svc.GetMe(c.Context(), identity.UserID)
 	if err != nil {
-		return errs.NotFound("User account not found").SendResponse(c)
+		// If user not in local DB but identity was passed via header (e.g. gateway/integration)
+		return c.JSON(fiber.Map{
+			"user": fiber.Map{
+				"id":       identity.UserID,
+				"username": identity.Username,
+				"role":     identity.Role,
+				"email":    identity.Email,
+				"company":  identity.Company,
+			},
+		})
 	}
 
 	return c.JSON(fiber.Map{

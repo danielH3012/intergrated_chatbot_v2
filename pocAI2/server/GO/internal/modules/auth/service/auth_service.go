@@ -127,13 +127,8 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 		return nil, errors.New("invalid credentials")
 	}
 
-	token, err := middleware.GenerateJWT(user)
-	if err != nil {
-		return nil, errors.New("failed to generate authentication token")
-	}
-
 	return &dto.AuthResponse{
-		Token: token,
+		Token: "",
 		User: dto.UserResponse{
 			ID:           user.ID,
 			Username:     user.Username,

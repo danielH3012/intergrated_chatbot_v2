@@ -60,8 +60,11 @@ func TestAuthService_RegisterAndLogin(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected login error: %v", err)
 	}
-	if loginRes.Token == "" {
-		t.Fatal("expected valid token upon successful login")
+	if loginRes.User.ID == "" {
+		t.Fatal("expected valid user id upon successful login")
+	}
+	if loginRes.User.Username != "newuser" {
+		t.Errorf("expected newuser, got %s", loginRes.User.Username)
 	}
 
 	// 5. GetMe test

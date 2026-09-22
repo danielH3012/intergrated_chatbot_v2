@@ -174,6 +174,11 @@ func HandleAddAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		return client.ErrResult("tenant company context is missing from request credentials")
 	}
 
+	// RBAC: Operator is restricted to read-only operations
+	if creds != nil && creds.NormalizedRole() == "operator" {
+		return client.ErrResult("forbidden: operator role is not authorized to register assets")
+	}
+
 	name := client.GetArgString(req, "name", "asset_name")
 	category := client.GetArgString(req, "category")
 	brand := client.GetArgString(req, "brand")
@@ -233,6 +238,11 @@ func HandleUpdateAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return client.ErrResult("tenant company context is missing from request credentials")
 	}
 
+	// RBAC: Operator is restricted to read-only operations
+	if creds != nil && creds.NormalizedRole() == "operator" {
+		return client.ErrResult("forbidden: operator role is not authorized to modify assets")
+	}
+
 	id := client.GetArgString(req, "id", "asset_id", "assetId")
 	if id == "" {
 		return client.ErrResult("'id' is required")
@@ -287,6 +297,11 @@ func HandleDeleteAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 			client.Logger.Println("[HandleDeleteAsset] Error: company credentials missing from request context")
 		}
 		return client.ErrResult("tenant company context is missing from request credentials")
+	}
+
+	// RBAC: Operator is restricted to read-only operations
+	if creds != nil && creds.NormalizedRole() == "operator" {
+		return client.ErrResult("forbidden: operator role is not authorized to delete assets")
 	}
 
 	id := client.GetArgString(req, "id", "asset_id", "assetId")

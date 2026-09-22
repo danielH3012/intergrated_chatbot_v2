@@ -19,21 +19,22 @@ func NewAssetHandler(svc *service.AssetService) *AssetHandler {
 	return &AssetHandler{svc: svc}
 }
 
-// extractUserIdentity resolves role and company from token claims or fallback headers.
+// extractUserIdentity resolves role and company from RequestIdentity or multi-tenant headers.
 func extractUserIdentity(c *fiber.Ctx) (role, company string) {
-	if userVal := c.Locals("user"); userVal != nil {
-		if claims, ok := userVal.(*middleware.JWTClaims); ok && claims != nil {
-			role = claims.Role
-			company = claims.Company
-		}
+	if identity := middleware.RequestIdentity(c); identity != nil {
+		role = identity.Role
+		company = identity.Company
+	}
+	if company == "" {
+		company = strings.TrimSpace(c.Get("X-Company"))
 	}
 	if company == "" {
 		company = strings.TrimSpace(c.Get("X-Company-Name"))
 	}
 	if company == "" {
-		company = strings.TrimSpace(c.Get("X-Company-Id"))
+		company = strings.TrimSpace(c.Get("X-Tenant-ID"))
 	}
-	if company == "" {
+	if company == "" && strings.EqualFold(role, "superadmin") {
 		company = strings.TrimSpace(c.Query("perusahaan"))
 	}
 	return role, company

@@ -37,6 +37,14 @@ export function setStoredUser(user) {
 
 export function getAuthHeaders(customHeaders = {}) {
   const headers = { ...customHeaders };
+  const user = getStoredUser();
+  if (user) {
+    if (user.id) headers['X-User-ID'] = String(user.id);
+    if (user.role) headers['X-User-Role'] = user.role;
+    if (user.username) headers['X-User-Name'] = user.username;
+    if (user.company) headers['X-Company'] = user.company;
+    if (user.id_perusahaan) headers['X-Company-ID'] = String(user.id_perusahaan);
+  }
   const token = getAuthToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -70,9 +78,11 @@ export async function loginUser({ username, password }) {
     body: JSON.stringify({ username, password }),
   });
   const data = await handleResponse(res);
-  if (data && data.token) {
-    setAuthToken(data.token);
-    setStoredUser(data.user);
+  if (data) {
+    const user = data.user;
+    const token = data.token || (user ? `sess_${user.id}` : '');
+    if (token) setAuthToken(token);
+    if (user) setStoredUser(user);
   }
   return data;
 }
@@ -84,9 +94,11 @@ export async function registerUser({ username, email, password, role, company, i
     body: JSON.stringify({ username, email, password, role, company, id_perusahaan }),
   });
   const data = await handleResponse(res);
-  if (data && data.token) {
-    setAuthToken(data.token);
-    setStoredUser(data.user);
+  if (data) {
+    const user = data.user;
+    const token = data.token || (user ? `sess_${user.id}` : '');
+    if (token) setAuthToken(token);
+    if (user) setStoredUser(user);
   }
   return data;
 }

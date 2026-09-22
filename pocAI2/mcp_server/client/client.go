@@ -80,6 +80,7 @@ func BuildHeaders(creds *Credentials) http.Header {
 		}
 		if creds.Role != "" {
 			h.Set("X-Role", creds.Role)
+			h.Set("X-User-Role", creds.Role)
 		}
 	}
 	return h

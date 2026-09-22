@@ -12,9 +12,16 @@ import (
 
 // HandleGetAssets handles GET /api/assets.
 func (h *AssetHandler) HandleGetAssets(c *fiber.Ctx) error {
-	_, company := extractUserIdentity(c)
+	role, company := extractUserIdentity(c)
 
-	if company == "" {
+	// Superadmin can optionally filter by a specific company via query
+	if strings.EqualFold(role, "superadmin") {
+		if queryPerusahaan := strings.TrimSpace(c.Query("perusahaan")); queryPerusahaan != "" {
+			company = queryPerusahaan
+		}
+	}
+
+	if company == "" && !strings.EqualFold(role, "superadmin") {
 		return c.JSON(fiber.Map{
 			"assets": []dto.AssetItem{},
 			"pagination": fiber.Map{

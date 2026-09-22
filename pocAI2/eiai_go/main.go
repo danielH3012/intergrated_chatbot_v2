@@ -72,7 +72,43 @@ func main() {
 			token = c.Get("Authorization")
 		}
 
-		userContext := controller.FetchUserContext(token, role)
+		// Support Header Auth (Tag Samurai BETS-V2 style: X-User-ID & X-User-Role)
+		headerUserID := strings.TrimSpace(c.Get("X-User-ID"))
+		if headerUserID == "" {
+			headerUserID = strings.TrimSpace(c.Query("user_id"))
+		}
+		if headerUserID == "" {
+			headerUserID = strings.TrimSpace(c.FormValue("user_id"))
+		}
+
+		headerUserRole := strings.TrimSpace(c.Get("X-User-Role"))
+		if headerUserRole == "" {
+			headerUserRole = strings.TrimSpace(c.Get("X-Role"))
+		}
+		if headerUserRole != "" {
+			role = strings.ToLower(headerUserRole)
+		}
+
+		var userContext map[string]any
+		if headerUserID != "" {
+			headerUsername := strings.TrimSpace(c.Get("X-User-Name"))
+			if headerUsername == "" {
+				headerUsername = strings.TrimSpace(c.Get("X-Username"))
+			}
+			if headerUsername == "" {
+				headerUsername = "User_" + headerUserID
+			}
+			headerEmail := strings.TrimSpace(c.Get("X-User-Email"))
+			userContext = map[string]any{
+				"user_id":  headerUserID,
+				"username": headerUsername,
+				"email":    headerEmail,
+				"role":     role,
+				"token":    token,
+			}
+		} else {
+			userContext = controller.FetchUserContext(token, role)
+		}
 		if r, ok := userContext["role"].(string); ok && r != "" {
 			role = r
 		}

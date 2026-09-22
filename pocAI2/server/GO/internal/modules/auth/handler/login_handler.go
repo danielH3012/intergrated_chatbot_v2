@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"strconv"
+
 	"github.com/gofiber/fiber/v2"
 
 	"golang-dh/internal/modules/auth/dto"
@@ -19,8 +21,23 @@ func (h *AuthHandler) HandleLogin(c *fiber.Ctx) error {
 		return errs.Unauthorized(err.Error()).SendResponse(c)
 	}
 
+	// Set identity & multi-tenant headers (Tag Samurai style)
+	c.Set("X-User-ID", res.User.ID)
+	c.Set("X-User-Role", res.User.Role)
+	c.Set("X-User-Name", res.User.Username)
+	c.Set("X-Company", res.User.Company)
+	if res.User.IdPerusahaan > 0 {
+		c.Set("X-Company-ID", strconv.Itoa(res.User.IdPerusahaan))
+	}
+
+	token := res.Token
+	if token == "" {
+		token = "sess_" + res.User.ID
+	}
+
 	return c.JSON(fiber.Map{
-		"token": res.Token,
-		"user":  res.User,
+		"message": "login successful",
+		"token":   token,
+		"user":    res.User,
 	})
 }

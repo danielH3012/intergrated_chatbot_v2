@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"strconv"
 
 	"github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
@@ -35,7 +36,7 @@ import (
 )
 
 func setupRoutes(app *fiber.App, dbService database.PostgreSQLServicer) {
-	auth := middleware.JWTAuth()
+	auth := middleware.HeaderAuth()
 	api := app.Group("/api")
 
 	// 1. Repositories
@@ -81,10 +82,21 @@ func setupRoutes(app *fiber.App, dbService database.PostgreSQLServicer) {
 		if err != nil {
 			return c.Status(401).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"token": res.Token, "user": res.User})
+		c.Set("X-User-ID", res.User.ID)
+		c.Set("X-User-Role", res.User.Role)
+		c.Set("X-User-Name", res.User.Username)
+		c.Set("X-Company", res.User.Company)
+		if res.User.IdPerusahaan > 0 {
+			c.Set("X-Company-ID", strconv.Itoa(res.User.IdPerusahaan))
+		}
+		token := res.Token
+		if token == "" {
+			token = "sess_" + res.User.ID
+		}
+		return c.JSON(fiber.Map{"message": "login successful", "token": token, "user": res.User})
 	})
 
-	asset.SetupRoutes(api, asstSvc)
+	asset.SetupRoutes(api, auth, asstSvc)
 	schedule.SetupRoutes(api, schedSvc)
 	app.Post("/schedule", func(c *fiber.Ctx) error {
 		var req scheduleDto.CreateScheduleRequest
