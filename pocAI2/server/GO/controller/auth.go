@@ -74,13 +74,13 @@ func Register(c *fiber.Ctx) error {
 	// If IdPerusahaan is given but Company is empty, lookup company name
 	if body.IdPerusahaan != 0 && body.Company == "" {
 		var compName string
-		row := DB.QueryRow(ctx, `SELECT nama_perusahaan FROM perusahaan WHERE id_perusahaan = $1 LIMIT 1`, body.IdPerusahaan)
+		row := DB.QueryRow(ctx, `SELECT nama_perusahaan FROM public.perusahaan WHERE id_perusahaan = $1 LIMIT 1`, body.IdPerusahaan)
 		if err := row.Scan(&compName); err == nil && compName != "" {
 			body.Company = compName
 		}
 	} else if body.Company != "" && body.IdPerusahaan == 0 {
 		var idComp int
-		row := DB.QueryRow(ctx, `SELECT id_perusahaan FROM perusahaan WHERE nama_perusahaan = $1 LIMIT 1`, body.Company)
+		row := DB.QueryRow(ctx, `SELECT id_perusahaan FROM public.perusahaan WHERE nama_perusahaan = $1 LIMIT 1`, body.Company)
 		if err := row.Scan(&idComp); err == nil && idComp != 0 {
 			body.IdPerusahaan = idComp
 		}
@@ -89,7 +89,7 @@ func Register(c *fiber.Ctx) error {
 	// Check duplicate username / email
 	var existingUsername, existingEmail string
 	row := DB.QueryRow(ctx,
-		`SELECT username, email FROM users WHERE username=$1 OR email=$2 LIMIT 1`,
+		`SELECT username, email FROM public.users WHERE username=$1 OR email=$2 LIMIT 1`,
 		body.Username, body.Email,
 	)
 	if err := row.Scan(&existingUsername, &existingEmail); err == nil {
@@ -125,7 +125,7 @@ func Register(c *fiber.Ctx) error {
 	}
 
 	_, err = DB.Exec(ctx,
-		`INSERT INTO users (id, username, email, password_hash, role, company, id_perusahaan, created_at, updated_at)
+		`INSERT INTO public.users (id, username, email, password_hash, role, company, id_perusahaan, created_at, updated_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		newUser.ID, newUser.Username, newUser.Email, newUser.PasswordHash,
 		newUser.Role, newUser.Company, newUser.IdPerusahaan, newUser.CreatedAt, newUser.UpdatedAt,
@@ -133,7 +133,7 @@ func Register(c *fiber.Ctx) error {
 	if err != nil {
 		// Fallback in case id_perusahaan column doesn't exist
 		_, err = DB.Exec(ctx,
-			`INSERT INTO users (id, username, email, password_hash, role, company, created_at, updated_at)
+			`INSERT INTO public.users (id, username, email, password_hash, role, company, created_at, updated_at)
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 			newUser.ID, newUser.Username, newUser.Email, newUser.PasswordHash,
 			newUser.Role, newUser.Company, newUser.CreatedAt, newUser.UpdatedAt,
@@ -189,7 +189,7 @@ func Login(c *fiber.Ctx) error {
 	var user models.User
 	row := DB.QueryRow(ctx,
 		`SELECT id, username, email, password_hash, role, company, COALESCE(id_perusahaan, 0), created_at, updated_at
-		 FROM users WHERE username=$1 OR email=$2 LIMIT 1`,
+		 FROM public.users WHERE username=$1 OR email=$2 LIMIT 1`,
 		body.Username, strings.ToLower(body.Username),
 	)
 	err := row.Scan(
@@ -200,7 +200,7 @@ func Login(c *fiber.Ctx) error {
 		// Fallback without id_perusahaan column
 		rowLegacy := DB.QueryRow(ctx,
 			`SELECT id, username, email, password_hash, role, company, created_at, updated_at
-			 FROM users WHERE username=$1 OR email=$2 LIMIT 1`,
+			 FROM public.users WHERE username=$1 OR email=$2 LIMIT 1`,
 			body.Username, strings.ToLower(body.Username),
 		)
 		if errLegacy := rowLegacy.Scan(&user.ID, &user.Username, &user.Email, &user.PasswordHash, &user.Role, &user.Company, &user.CreatedAt, &user.UpdatedAt); errLegacy != nil {
@@ -257,7 +257,7 @@ func GetMe(c *fiber.Ctx) error {
 
 	var user models.User
 	row := DB.QueryRow(ctx,
-		`SELECT id, username, email, role, company, COALESCE(id_perusahaan, 0), created_at FROM users WHERE id=$1`,
+		`SELECT id, username, email, role, company, COALESCE(id_perusahaan, 0), created_at FROM public.users WHERE id=$1`,
 		claims.UserID,
 	)
 	if err := row.Scan(&user.ID, &user.Username, &user.Email, &user.Role, &user.Company, &user.IdPerusahaan, &user.CreatedAt); err == nil {

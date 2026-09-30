@@ -62,7 +62,11 @@ func setupRoutes(app *fiber.App, dbService database.PostgreSQLServicer) {
 		if err != nil {
 			return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 		}
-		return c.JSON(fiber.Map{"companies": comps})
+		return c.JSON(fiber.Map{
+			"companies":  comps,
+			"perusahaan": comps,
+			"data":       comps,
+		})
 	})
 
 	authMod.SetupRoutes(api, auth, atSvc)
@@ -117,6 +121,13 @@ func setupRoutes(app *fiber.App, dbService database.PostgreSQLServicer) {
 
 	tools.SetupRoutes(api, auth, toolSvc)
 	chat.SetupRoutes(app, auth, chtSvc)
+
+	// 3.5 Borrow Approval & Anomaly Inspection
+	api.Get("/borrow/approvals", controllers.GetBorrowApprovals)
+	api.Get("/borrow/:id", controllers.GetBorrowTransaction)
+	api.Get("/borrow/:id/anomalies", controllers.CheckBorrowAnomalies)
+	api.Post("/borrow/:id/approve", controllers.ApproveBorrowTransaction)
+	api.Post("/borrow/request", controllers.CreateBorrowRequest)
 
 	// 4. Specialized Media & Stream Handlers
 	api.Post("/pdf", controllers.PdfHandler)

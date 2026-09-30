@@ -123,7 +123,8 @@ func DoRequest(method, path string, params url.Values, body any, creds *Credenti
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		errMsg := fmt.Sprintf("%s %s returned status %d", method, u, resp.StatusCode)
+		respBytes, _ := io.ReadAll(resp.Body)
+		errMsg := fmt.Sprintf("%s %s returned status %d: %s", method, u, resp.StatusCode, string(respBytes))
 		if Logger != nil {
 			Logger.Println(errMsg)
 		}

@@ -124,16 +124,18 @@ type AttachmentInfo struct {
 }
 
 type ChatMessage struct {
-	ID         string          `json:"id,omitempty"`
-	ChatID     string          `json:"chat_id,omitempty"`
-	UserID     string          `json:"user_id,omitempty"`
-	Username   string          `json:"username,omitempty"`
-	Role       string          `json:"role,omitempty"`
-	User       bool            `json:"user"`
-	Chat       string          `json:"chat"`
-	Models     string          `json:"models,omitempty"`
-	CreatedAt  string          `json:"created_at,omitempty"`
-	Attachment *AttachmentInfo `json:"attachment,omitempty"`
+	ID             string          `json:"id,omitempty"`
+	ChatID         string          `json:"chat_id,omitempty"`
+	UserID         string          `json:"user_id,omitempty"`
+	Username       string          `json:"username,omitempty"`
+	Role           string          `json:"role,omitempty"`
+	User           bool            `json:"user"`
+	Chat           string          `json:"chat"`
+	Models         string          `json:"models,omitempty"`
+	CreatedAt      string          `json:"created_at,omitempty"`
+	Date           string          `json:"date,omitempty"`
+	Attachment     *AttachmentInfo `json:"attachment,omitempty"`
+	AttachmentText string          `json:"attachment_text,omitempty"`
 }
 
 var (
@@ -220,6 +222,9 @@ func FetchChatHistory(chatID string, token string, limit int) []ChatMessage {
 	if cleanToken != "" {
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", cleanToken))
 	}
+	req.Header.Set("X-User-ID", chatID)
+	req.Header.Set("X-User-Name", chatID)
+	req.Header.Set("X-Username", chatID)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -233,10 +238,37 @@ func FetchChatHistory(chatID string, token string, limit int) []ChatMessage {
 		return nil
 	}
 
-	var allMessages []ChatMessage
-	if err := json.NewDecoder(resp.Body).Decode(&allMessages); err != nil {
-		log.Printf("[FetchChatHistory] JSON decode error: %v", err)
+	bodyBytes, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		log.Printf("[FetchChatHistory] ReadBody error: %v", readErr)
 		return nil
+	}
+
+	var allMessages []ChatMessage
+	if err := json.Unmarshal(bodyBytes, &allMessages); err != nil {
+		var wrapper struct {
+			Messages []ChatMessage `json:"messages"`
+			Data     []ChatMessage `json:"data"`
+			Value    []ChatMessage `json:"value"`
+		}
+		if wrapErr := json.Unmarshal(bodyBytes, &wrapper); wrapErr == nil {
+			if len(wrapper.Messages) > 0 {
+				allMessages = wrapper.Messages
+			} else if len(wrapper.Data) > 0 {
+				allMessages = wrapper.Data
+			} else if len(wrapper.Value) > 0 {
+				allMessages = wrapper.Value
+			}
+		} else {
+			log.Printf("[FetchChatHistory] JSON decode error: %v (body: %s)", err, string(bodyBytes))
+			return nil
+		}
+	}
+
+	for i := range allMessages {
+		if allMessages[i].CreatedAt == "" && allMessages[i].Date != "" {
+			allMessages[i].CreatedAt = allMessages[i].Date
+		}
 	}
 
 	if len(allMessages) > limit {

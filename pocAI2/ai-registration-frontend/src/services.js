@@ -121,6 +121,7 @@ export async function getPerusahaanList() {
     const res = await fetch(`${API_BASE}/api/perusahaan`);
     const data = await handleResponse(res);
     if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.companies)) return data.companies;
     if (data && Array.isArray(data.perusahaan)) return data.perusahaan;
     if (data && Array.isArray(data.data)) return data.data;
     return [];
@@ -286,3 +287,47 @@ export async function confirmAll(sessionId) {
   });
   return await handleResponse(res);
 }
+
+// ---------------------------------------------------------------------
+// Borrow Approval & Anomaly Inspection
+// ---------------------------------------------------------------------
+
+export async function getBorrowApprovals() {
+  const res = await fetch(`${API_BASE}/api/borrow/approvals`, {
+    headers: getAuthHeaders(),
+  });
+  return await handleResponse(res);
+}
+
+export async function getBorrowTransaction(id) {
+  const res = await fetch(`${API_BASE}/api/borrow/${encodeURIComponent(id)}`, {
+    headers: getAuthHeaders(),
+  });
+  return await handleResponse(res);
+}
+
+export async function checkBorrowAnomalies(id) {
+  const res = await fetch(`${API_BASE}/api/borrow/${encodeURIComponent(id)}/anomalies`, {
+    headers: getAuthHeaders(),
+  });
+  return await handleResponse(res);
+}
+
+export async function submitBorrowApproval(id, payload) {
+  const res = await fetch(`${API_BASE}/api/borrow/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(res);
+}
+
+export async function createBorrowRequest(payload) {
+  const res = await fetch(`${API_BASE}/api/borrow/request`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(payload),
+  });
+  return await handleResponse(res);
+}
+

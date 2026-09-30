@@ -47,7 +47,7 @@ func GetMessages(c *fiber.Ctx) error {
 	rows, err := DB.Query(ctx,
 		`SELECT id, "user", chat, created_at, COALESCE(user_id::text, ''), username, role, models,
 		        COALESCE(attachment_name, ''), COALESCE(attachment_url, ''), COALESCE(attachment_type, ''), COALESCE(attachment_size, 0)
-		 FROM chat
+		 FROM public.chat
 		 WHERE username ILIKE $1
 		 ORDER BY created_at ASC`,
 		targetUsername,

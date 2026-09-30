@@ -213,6 +213,31 @@ func main() {
 		return c.JSON(res)
 	})
 
+	// Anomaly Narrative Synthesis endpoint for Borrow Approval
+	app.Post("/anomaly/narrative", func(c *fiber.Ctx) error {
+		var req struct {
+			BorrowerName string   `json:"borrower_name"`
+			GroupName    string   `json:"group_name"`
+			Signals      []string `json:"signals"`
+		}
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(400).JSON(fiber.Map{"error": err.Error()})
+		}
+		narrative, err := controller.SynthesizeAnomalyNarrative(req.BorrowerName, req.GroupName, req.Signals)
+		if err != nil {
+			return c.JSON(fiber.Map{
+				"narrative":       "",
+				"error":           err.Error(),
+				"is_ai_generated": false,
+			})
+		}
+		return c.JSON(fiber.Map{
+			"narrative":       narrative,
+			"error":           "",
+			"is_ai_generated": true,
+		})
+	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8000"

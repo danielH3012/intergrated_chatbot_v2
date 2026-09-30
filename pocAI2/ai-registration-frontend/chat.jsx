@@ -204,11 +204,12 @@ export default function Chat() {
   useEffect(() => {
     apiFetch(`/messages/${chatID}`)
       .then((res) => (res.ok ? res.json() : []))
-      .then((history) =>
+      .then((history) => {
+        const list = Array.isArray(history) ? history : (history?.value || history?.messages || history?.data || [])
         setMessages(
-          history.map((m) => {
+          list.map((m) => {
             let attach = m.attachment || null
-            let text = m.chat || ''
+            let text = m.chat || m.text || ''
 
             // Fallback for legacy messages that stored 📎 [Attached: filename] in text
             if (!attach && text.includes('📎 [Attached: ')) {
@@ -218,18 +219,21 @@ export default function Chat() {
               }
             }
 
+            const rawTime = m.created_at || m.date
+            const parsedTime = rawTime ? new Date(rawTime) : new Date()
+
             return {
               id: m.id ?? `${Date.now()}-${Math.random()}`,
               user: !!m.user,
-              username: m.username || (m.user ? user?.username || 'You' : 'QTERA AI'),
-              role: m.role || (m.user ? userRole : 'system'),
+              username: m.username || m.user_obj?.name || (m.user ? user?.username || 'You' : 'QTERA AI'),
+              role: m.role || m.user_obj?.role || (m.user ? userRole : 'system'),
               text,
               attachment: attach,
-              time: new Date(m.created_at),
+              time: isNaN(parsedTime.getTime()) ? new Date() : parsedTime,
             }
           })
         )
-      )
+      })
       .catch(() => {})
   }, [chatID, user, userRole])
 
@@ -285,15 +289,12 @@ export default function Chat() {
       formData.append('models', model)
       formData.append('attachment', fileToSend)
 
-      const token = getToken()
-      const headers = {}
-      if (token) headers['Authorization'] = `Bearer ${token}`
-
-      fetch('/message', {
+      apiFetch('/message', {
         method: 'POST',
-        headers,
         body: formData,
-      }).catch(() => {})
+      }).catch((err) => {
+        console.error('Failed to send attachment message:', err)
+      })
     } else {
       apiFetch('/message', {
         method: 'POST',

@@ -84,6 +84,13 @@ func BuildAssetFilterQuery(filter dto.AssetListFilter) (whereClause string, args
 		idx++
 	}
 
+	// Condition filter ('Normal', 'Damaged', 'Missing')
+	if filter.Condition != "" {
+		conditions = append(conditions, fmt.Sprintf("condition ILIKE $%d", idx))
+		args = append(args, filter.Condition)
+		idx++
+	}
+
 	if len(conditions) > 0 {
 		whereClause = " WHERE " + strings.Join(conditions, " AND ")
 	}

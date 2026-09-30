@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   getStoredUser,
   getAuthToken,
@@ -16,6 +16,7 @@ import {
 } from './services.js'
 import { AuthProvider } from './AuthContext.jsx'
 import Chat from './Chat.jsx'
+import BorrowApprovalPage from './BorrowApprovalPage.jsx'
 
 // ---------------------------------------------------------------------
 // Constants
@@ -67,7 +68,7 @@ function EmptyState({ icon, title, cta }) {
 // Navigation Bar
 // ---------------------------------------------------------------------
 
-function TopNavBar({ user, onLogout, onGoList, page }) {
+function TopNavBar({ user, onLogout, onGoList, onGoApprovals, page }) {
   const roleColors = {
     admin: { bg: '#f3e8ff', color: '#7e22ce', border: '#d8b4fe' },
     operator: { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
@@ -83,9 +84,17 @@ function TopNavBar({ user, onLogout, onGoList, page }) {
         </div>
         <span>QTERA Asset Management</span>
       </div>
-      {page === 'chat' && (
+      {page !== 'list' ? (
         <button className="btn btn-ghost btn-sm nav-back-btn" onClick={onGoList}>
           <i className="ph ph-arrow-left" /> Back to Assets
+        </button>
+      ) : (
+        <button
+          className="btn btn-ghost btn-sm"
+          onClick={onGoApprovals}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '12px', color: '#4f46e5', fontWeight: '600' }}
+        >
+          <i className="ph ph-stamp" style={{ fontSize: '16px' }} /> Approvals
         </button>
       )}
 
@@ -328,7 +337,11 @@ function AuthPage({ onAuthSuccess, showToast }) {
                     disabled={loading || loadingCompanies}
                     className="input-with-icon"
                   >
-                    {companies.length === 0 && <option value="">Loading companies...</option>}
+                    {loadingCompanies ? (
+                      <option value="">Loading companies...</option>
+                    ) : companies.length === 0 ? (
+                      <option value="">Tidak ada perusahaan</option>
+                    ) : null}
                     {companies.map((c) => {
                       const idVal = typeof c === 'string' ? c : (c.id_perusahaan || c.id || c.nama_perusahaan || c.name)
                       const label = typeof c === 'string' ? c : (c.nama_perusahaan || c.name || c.id_perusahaan || c.id)
@@ -399,10 +412,11 @@ function AuthPage({ onAuthSuccess, showToast }) {
 // Asset List Page
 // ---------------------------------------------------------------------
 
-function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
+function AssetListPage({ onRegister, onEdit, onChat, onApprovals, showToast, reloadKey }) {
   const [loading, setLoading] = useState(true)
-  const [rows, setRows] = useState([])
-  const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalItems: 0, totalPages: 1 })
+  const [allAssets, setAllAssets] = useState([])
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState('createdAt')
   const [order, setOrder] = useState('desc')
@@ -431,16 +445,28 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     purchaseDate: 'Purchase Date', purchasePrice: 'Purchase Price', location: 'Location', createdAt: 'Created At',
   }
 
-  const load = useCallback((page = pagination.page) => {
+  const load = useCallback(() => {
     setLoading(true)
-    getAssets({ search, category, brand, location, sort, order, page, pageSize: pagination.pageSize }).then((res) => {
-      setRows(res.assets || [])
-      setPagination(res.pagination || { page: 1, pageSize: 10, totalItems: 0, totalPages: 1 })
+    getAssets({ search, category, brand, location, sort, order, pageSize: 'all' }).then((res) => {
+      setAllAssets(res.assets || [])
       setLoading(false)
     }).catch(() => setLoading(false))
-  }, [search, category, brand, location, sort, order, pagination.pageSize])
+  }, [search, category, brand, location, sort, order])
 
-  useEffect(() => { load(1) }, [search, category, brand, location, sort, order, pagination.pageSize, reloadKey])
+  useEffect(() => {
+    setPage(1)
+    load()
+  }, [load, reloadKey])
+
+  const totalItems = allAssets.length
+  const totalPages = pageSize === 'all' ? 1 : Math.max(1, Math.ceil(totalItems / (Number(pageSize) || 10)))
+  const safePage = Math.min(Math.max(1, page), totalPages)
+  const rows = useMemo(() => {
+    if (pageSize === 'all') return allAssets
+    const size = Number(pageSize) || 10
+    const start = (safePage - 1) * size
+    return allAssets.slice(start, start + size)
+  }, [allAssets, safePage, pageSize])
 
   function toggleSort(col) {
     if (sort === col) setOrder(order === 'asc' ? 'desc' : 'asc')
@@ -451,9 +477,8 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value])
   }
 
-  async function handleDownload() {
-    const res = await getAssets({ search, category, brand, location, sort, order, pageSize: 'all' })
-    downloadAssetsCSV(res.assets || [])
+  function handleDownload() {
+    downloadAssetsCSV(allAssets)
   }
 
   async function handleDeleteConfirm() {
@@ -462,16 +487,16 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     setDeleting(false)
     setDeleteTarget(null)
     showToast('Asset deleted successfully.')
-    load(1)
+    load()
     loadOptions()
   }
 
   const isColVisible = (c) => nonHideable.includes(c) || colVisibility[c] !== false
   const activeFilterCount = category.length + brand.length + location.length
 
-  const dynamicCategories = options.categories.length ? options.categories : [...new Set(rows.map((a) => a.category).filter(Boolean))]
-  const dynamicLocations = options.locations.length ? options.locations : [...new Set(rows.map((a) => a.location).filter(Boolean))]
-  const dynamicBrands = options.brands.length ? options.brands : [...new Set(rows.map((a) => a.brand).filter(Boolean))]
+  const dynamicCategories = options.categories.length ? options.categories : [...new Set(allAssets.map((a) => a.category).filter(Boolean))]
+  const dynamicLocations = options.locations.length ? options.locations : [...new Set(allAssets.map((a) => a.location).filter(Boolean))]
+  const dynamicBrands = options.brands.length ? options.brands : [...new Set(allAssets.map((a) => a.brand).filter(Boolean))]
 
   function formatCurrency(v) {
     if (v == null || v === '') return null
@@ -490,6 +515,14 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
       <div className="page-header">
         <h1>Assets Inventory</h1>
         <div className="page-header-actions">
+          <button
+            className="btn btn-outline"
+            onClick={onApprovals}
+            title="Borrow Approvals & Anomaly Inspection"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+          >
+            <i className="ph ph-stamp" /> Approvals
+          </button>
           <button className="btn btn-chat-ai" onClick={onChat} title="Ask QTERA AI">
             <i className="ph ph-chat-teardrop-dots" /> Chat AI
           </button>
@@ -588,25 +621,35 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
             ))}
           </tbody>
         </table>
-        {!loading && rows.length === 0 && pagination.totalItems === 0 && !search && activeFilterCount === 0 && (
+        {!loading && totalItems === 0 && !search && activeFilterCount === 0 && (
           <EmptyState icon="ph-package" title="No assets registered yet" cta={<button className="btn btn-primary" onClick={onRegister}>+ Register Asset</button>} />
         )}
-        {!loading && rows.length === 0 && (search || activeFilterCount > 0) && (
+        {!loading && totalItems === 0 && (search || activeFilterCount > 0) && (
           <EmptyState icon="ph-magnifying-glass" title="No matching assets found" />
         )}
       </div>
 
-      {!loading && rows.length > 0 && (
+      {!loading && totalItems > 0 && (
         <div className="pagination-bar">
-          <span className="muted">{pagination.totalItems} asset(s)</span>
+          <span className="muted">{totalItems} asset(s)</span>
           <div className="pagination-controls">
-            <select value={pagination.pageSize} onChange={(e) => setPagination((p) => ({ ...p, pageSize: e.target.value === 'all' ? 'all' : Number(e.target.value) }))}>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))
+                setPage(1)
+              }}
+            >
               {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
               <option value="all">All</option>
             </select>
-            <button className="icon-btn-sm" disabled={pagination.page <= 1} onClick={() => load(pagination.page - 1)}><i className="ph ph-caret-left" /></button>
-            <span>Page {pagination.page} of {pagination.totalPages}</span>
-            <button className="icon-btn-sm" disabled={pagination.page >= pagination.totalPages} onClick={() => load(pagination.page + 1)}><i className="ph ph-caret-right" /></button>
+            <button className="icon-btn-sm" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <i className="ph ph-caret-left" />
+            </button>
+            <span>Page {safePage} of {totalPages}</span>
+            <button className="icon-btn-sm" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+              <i className="ph ph-caret-right" />
+            </button>
           </div>
         </div>
       )}
@@ -860,18 +903,22 @@ export default function App() {
     // AuthProvider wraps so Chat component can access user via useAuth()
     <AuthProvider user={user}>
       <div className="app-shell">
-        <TopNavBar user={user} onLogout={handleLogout} onGoList={goList} page={page} />
+        <TopNavBar user={user} onLogout={handleLogout} onGoList={goList} onGoApprovals={() => setPage('approval')} page={page} />
 
         {page === 'list' && (
           <AssetListPage
             onRegister={() => setPage('register')}
             onEdit={(asset) => { setEditingAsset(asset); setPage('form') }}
             onChat={() => setPage('chat')}
+            onApprovals={() => setPage('approval')}
             showToast={push}
             reloadKey={reloadKey}
           />
         )}
         {page === 'chat' && <Chat />}
+        {page === 'approval' && (
+          <BorrowApprovalPage showToast={push} onBack={goList} />
+        )}
         {page === 'register' && (
           <RegistrationFlow
             onDone={goList}

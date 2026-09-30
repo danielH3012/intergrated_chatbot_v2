@@ -22,16 +22,21 @@ func NewChatHandler(svc *service.ChatService) *ChatHandler {
 
 // HandleGetMessages handles GET /messages/:id.
 func (h *ChatHandler) HandleGetMessages(c *fiber.Ctx) error {
-	var targetUsername string
+	targetUsername := strings.TrimSpace(c.Params("id"))
+	targetUsername = strings.TrimPrefix(targetUsername, "user_")
 
-	if userVal := c.Locals("user"); userVal != nil {
-		if claims, ok := userVal.(*middleware.JWTClaims); ok && claims != nil {
-			targetUsername = strings.TrimSpace(claims.Username)
+	if targetUsername == "" {
+		if userVal := c.Locals("user"); userVal != nil {
+			if claims, ok := userVal.(*middleware.JWTClaims); ok && claims != nil {
+				targetUsername = strings.TrimSpace(claims.Username)
+			}
 		}
 	}
 	if targetUsername == "" {
-		targetUsername = strings.TrimSpace(c.Params("id"))
-		targetUsername = strings.TrimPrefix(targetUsername, "user_")
+		targetUsername = strings.TrimSpace(c.Get("X-User-Name"))
+	}
+	if targetUsername == "" {
+		targetUsername = strings.TrimSpace(c.Get("X-Username"))
 	}
 	if targetUsername == "" {
 		return errs.BadRequest("username is required").SendResponse(c)

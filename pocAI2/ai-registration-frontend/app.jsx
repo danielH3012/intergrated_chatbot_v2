@@ -473,8 +473,9 @@ function AuthPage({ onAuthSuccess, showToast }) {
 
 function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState([]);
-  const [pagination, setPagination] = useState({ page: 1, pageSize: 10, totalItems: 0, totalPages: 1 });
+  const [allAssets, setAllAssets] = useState([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("createdAt");
   const [order, setOrder] = useState("desc");
@@ -508,16 +509,28 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     purchaseDate: "Purchase Date", purchasePrice: "Purchase Price", location: "Location", createdAt: "Created At",
   };
 
-  const load = useCallback((page = pagination.page) => {
+  const load = useCallback(() => {
     setLoading(true);
-    getAssets({ search, category, brand, location, sort, order, page, pageSize: pagination.pageSize }).then((res) => {
-      setRows(res.assets || []);
-      setPagination(res.pagination || { page: 1, pageSize: 10, totalItems: 0, totalPages: 1 });
+    getAssets({ search, category, brand, location, sort, order, pageSize: "all" }).then((res) => {
+      setAllAssets(res.assets || []);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [search, category, brand, location, sort, order, pagination.pageSize]);
+  }, [search, category, brand, location, sort, order]);
 
-  useEffect(() => { load(1); }, [search, category, brand, location, sort, order, pagination.pageSize, reloadKey]);
+  useEffect(() => {
+    setPage(1);
+    load();
+  }, [load, reloadKey]);
+
+  const totalItems = allAssets.length;
+  const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalItems / (Number(pageSize) || 10)));
+  const safePage = Math.min(Math.max(1, page), totalPages);
+  const rows = useMemo(() => {
+    if (pageSize === "all") return allAssets;
+    const size = Number(pageSize) || 10;
+    const start = (safePage - 1) * size;
+    return allAssets.slice(start, start + size);
+  }, [allAssets, safePage, pageSize]);
 
   function toggleSort(col) {
     if (sort === col) setOrder(order === "asc" ? "desc" : "asc");
@@ -528,9 +541,8 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     setList(list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
   }
 
-  async function handleDownload() {
-    const res = await getAssets({ search, category, brand, location, sort, order, pageSize: "all" });
-    downloadAssetsCSV(res.assets || []);
+  function handleDownload() {
+    downloadAssetsCSV(allAssets);
   }
 
   async function handleDeleteConfirm() {
@@ -539,16 +551,16 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
     setDeleting(false);
     setDeleteTarget(null);
     showToast("Asset deleted successfully.");
-    load(1);
+    load();
     loadOptions();
   }
 
   const isColVisible = (c) => nonHideable.includes(c) || colVisibility[c] !== false;
   const activeFilterCount = category.length + brand.length + location.length;
 
-  const dynamicCategories = options.categories.length ? options.categories : [...new Set(rows.map((a) => a.category).filter(Boolean))];
-  const dynamicLocations = options.locations.length ? options.locations : [...new Set(rows.map((a) => a.location).filter(Boolean))];
-  const dynamicBrands = options.brands.length ? options.brands : [...new Set(rows.map((a) => a.brand).filter(Boolean))];
+  const dynamicCategories = options.categories.length ? options.categories : [...new Set(allAssets.map((a) => a.category).filter(Boolean))];
+  const dynamicLocations = options.locations.length ? options.locations : [...new Set(allAssets.map((a) => a.location).filter(Boolean))];
+  const dynamicBrands = options.brands.length ? options.brands : [...new Set(allAssets.map((a) => a.brand).filter(Boolean))];
 
   return (
     <div className="page">
@@ -654,25 +666,35 @@ function AssetListPage({ onRegister, onEdit, onChat, showToast, reloadKey }) {
             ))}
           </tbody>
         </table>
-        {!loading && rows.length === 0 && pagination.totalItems === 0 && !search && activeFilterCount === 0 && (
+        {!loading && totalItems === 0 && !search && activeFilterCount === 0 && (
           <EmptyState icon="ph-package" title="No assets registered yet" cta={<button className="btn btn-primary" onClick={onRegister}>+ Register Asset</button>} />
         )}
-        {!loading && rows.length === 0 && (search || activeFilterCount > 0) && (
+        {!loading && totalItems === 0 && (search || activeFilterCount > 0) && (
           <EmptyState icon="ph-magnifying-glass" title="No matching assets found" />
         )}
       </div>
 
-      {!loading && rows.length > 0 && (
+      {!loading && totalItems > 0 && (
         <div className="pagination-bar">
-          <span className="muted">{pagination.totalItems} asset(s)</span>
+          <span className="muted">{totalItems} asset(s)</span>
           <div className="pagination-controls">
-            <select value={pagination.pageSize} onChange={(e) => setPagination((p) => ({ ...p, pageSize: e.target.value === "all" ? "all" : Number(e.target.value) }))}>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(e.target.value === "all" ? "all" : Number(e.target.value));
+                setPage(1);
+              }}
+            >
               {[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n} / page</option>)}
               <option value="all">All</option>
             </select>
-            <button className="icon-btn-sm" disabled={pagination.page <= 1} onClick={() => load(pagination.page - 1)}><i className="ph ph-caret-left" /></button>
-            <span>Page {pagination.page} of {pagination.totalPages}</span>
-            <button className="icon-btn-sm" disabled={pagination.page >= pagination.totalPages} onClick={() => load(pagination.page + 1)}><i className="ph ph-caret-right" /></button>
+            <button className="icon-btn-sm" disabled={safePage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <i className="ph ph-caret-left" />
+            </button>
+            <span>Page {safePage} of {totalPages}</span>
+            <button className="icon-btn-sm" disabled={safePage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+              <i className="ph ph-caret-right" />
+            </button>
           </div>
         </div>
       )}

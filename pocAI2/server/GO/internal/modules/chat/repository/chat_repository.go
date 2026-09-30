@@ -41,7 +41,7 @@ func (r *chatRepository) GetHistory(ctx context.Context, username string) ([]dto
 		SELECT id, "user", chat, created_at, user_id, username, role, models,
 		       attachment_name, attachment_url, attachment_type, attachment_size, attachment_text
 		FROM public.chat
-		WHERE username ILIKE $1
+		WHERE username ILIKE $1 OR user_id::text = $1 OR username ILIKE ('user_' || $1)
 		ORDER BY created_at ASC
 	`
 	rows, err := r.db.Query(ctx, query, username)

@@ -240,6 +240,7 @@ func inferIdField(records []map[string]any, paramName string) string {
 		paramName,
 		"assetId",
 		"asset_id",
+		"assetid",
 		"id",
 		"_id",
 		strings.ReplaceAll(paramName, "_id", "Id"),

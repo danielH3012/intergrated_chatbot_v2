@@ -557,10 +557,20 @@ INTENT CATEGORIES AND RULES:
 10. "greeting": Greetings or questions about who you are or what capabilities you have (e.g. "halo", "hi", "apa yang bisa kamu lakukan").
    -> category="greeting", target_tool="no_tools".
 
+CONTEXTUAL FOLLOW-UP RULE:
+When evaluating user intent, take into account the Recent Conversation History and any attached reference documents.
+If the user refers to previous context or requests (e.g. "input datanya lagi", "masukkan datanya", "coba lagi", "lanjutkan", "input yang tadi", "tampilkan juga"), maintain continuity with the ongoing task (e.g. "add_asset" if adding assets from an attached list or prior turn).
+
 IMPORTANT: Output ONLY the raw JSON object. Do not include markdown codeblocks, explanation, or conversational text.`
 
 	var userPrompt strings.Builder
 	if userContext != nil {
+		if historyVal, ok := userContext["history"].([]ChatMessage); ok && len(historyVal) > 0 {
+			historyStr := FormatChatHistoryForLlm(historyVal)
+			if historyStr != "" {
+				userPrompt.WriteString(fmt.Sprintf("=== RECENT CONVERSATION HISTORY ===\n%s\n\n", historyStr))
+			}
+		}
 		hasUploaded, _ := userContext["has_user_uploaded_file"].(bool)
 		if attachText, ok := userContext["attachment_text"].(string); ok && attachText != "" {
 			attachName := "Attached Document"
@@ -735,17 +745,20 @@ func CallTools(ctx context.Context, client *client.Client, mcpTools []mcp.Tool, 
 			"- FOR ADDING ASSETS (`add_asset`): NEVER call `get_assets`. Call `add_asset` directly on the very first turn. You do NOT need to check or query existing assets before adding a new asset.\n"+
 			"- For add_asset: Even if there is data similar or identical to existing data or one previously inputted, you MUST still input it and treat each as a separate, distinct asset entry. Never skip, merge, or ignore adding an asset because of similarity.\n"+
 			"- MULTIPLE SIMILAR USER INPUTS: If the user inputs or specifies multiple similar or identical items (e.g. 'tambahkan 3 laptop Dell', or lists multiple identical items in chat/document), you MUST treat each item as a distinct, separate asset and emit one separate `add_asset` tool call for every single item. Never combine, collapse, or deduplicate them.\n"+
+			"- ASSET CONDITION & STATUS MANDATE: Pay close attention to condition or status details in user messages or documents:\n"+
+			"  * `condition`: Pass 'Damaged' (or 'rusak'), 'Missing' (or 'hilang'), or 'Normal'. If unspecified or good, default to 'Normal'.\n"+
+			"  * `status`: Pass 'active' (default), 'in repair', or 'retired'.\n"+
 			"If you see an id don't change any of its format (example: AST-0001 keep and pass as AST-0001).\n"+
 			"Provide the tool call directly without greeting back or unnecessary pleasantries.\n"+
 			"INPUT VALIDATION MANDATE: For any input fields, arguments, or parameters that are empty or not specified (such as category, brand, modelType, location, purchasePrice, purchaseDate), you MUST fill them with \"-\". Never omit them or leave them empty.\n"+
 			"INVENTORY QUERYING & LIVE DATABASE MANDATE:\n"+
-			"- LIVE DATABASE PRIORITY (FOR QUERIES ONLY): When the user inquires about existing assets, equipment, devices, inventory counts, or lists (e.g. 'show me all assets in this system', 'tampilkan semua aset', 'how many laptops do we have'), you MUST call `get_assets` to fetch fresh live data over cached context. DO NOT call `get_assets` when adding new assets.\n"+
+			"- LIVE DATABASE PRIORITY (FOR QUERIES ONLY): When the user inquires about existing assets, equipment, devices, inventory counts, or lists (e.g. 'show me all assets in this system', 'tampilkan semua aset', 'how many laptops do we have', 'aset rusak ada berapa'), you MUST call `get_assets` directly with empty arguments `{}` to fetch all live inventory. Do NOT filter by situation or parameters in `get_assets`; simply retrieve all assets, and `extractContext` will filter and analyze the specific records.\n"+
 			"- NEVER assume or claim an attached document/spreadsheet or chat history contains all assets in the system. Attached documents are ONLY reference materials or data to be imported, NOT the live system inventory.\n\n"+
 			"Available Tools Guide:\n%s\n\n"+
 			"Execution Rules:\n"+
 			"1. **Thinking (<thought>...</thought>)**: Identify the user's intent. If adding assets, choose `add_asset` immediately without calling `get_assets`.\n"+
 			"2. **Tool Execution**: Call only tools from the Available Tools Guide. For asset additions, invoke `add_asset` directly without prior lookup. When inserting multiple items from user inputs or documents (e.g. 5 laptops or repeated similar entries), emit one individual `add_asset` call per item. Even if items have similar or identical specifications or names, treat each as different data and input every single one. Fill any missing or empty input arguments with \"-\".\n"+
-			"3. **Updating Assets by Name (Multi-Step Lookup)**: To call `update_asset`, the unique `id` (e.g. 'AST-XXXXXXXX') is REQUIRED. If the user asks to update or modify an asset by name or keyword without providing the exact ID (e.g. 'update termostat price to 150000'), you MUST FIRST call `get_assets` with `search` set to the asset name (e.g. `{\"name\": \"get_assets\", \"arguments\": {\"search\": \"termostat\"}}`) to look up its unique ID. Do NOT call `no_tools`! Once the ID is retrieved, call `update_asset` with that ID.\n"+
+			"3. **Updating Assets by Name (Multi-Step Lookup)**: To call `update_asset`, the unique `id` (e.g. 'AST-XXXXXXXX') is REQUIRED. If the user asks to update or modify an asset by name or keyword without providing the exact ID (e.g. 'update termostat price to 150000'), you MUST FIRST call `get_assets` with `{}` to retrieve all assets so its unique ID can be identified. Do NOT call `no_tools`! Once the ID is retrieved, call `update_asset` with that ID.\n"+
 			"4. **Company Scoping**: Asset operations are strictly validated and automatically scoped to the user's company.\n"+
 			"5. **Audit Scheduling**: When the user requests creating, adding, or planning a schedule for asset audit or stock-take, call `create_schedule` directly. If the user asks to view or check schedules, call `get_schedules`.\n"+
 			"6. **No Tools Needed**: For greetings, unauthorized actions, or off-topic prompts, call `no_tools`.\n\n"+
@@ -883,7 +896,7 @@ func CallTools(ctx context.Context, client *client.Client, mcpTools []mcp.Tool, 
 				}, nil
 			}
 			if cleanReply != "" {
-				return &AgentResult{Answer: cleanReply}, nil
+				return &AgentResult{Answer: GenerateResponse(ctx, query, cleanReply, userContext, model)}, nil
 			}
 			return &AgentResult{Answer: "I do not have information or unable to do that."}, nil
 		}
@@ -1010,6 +1023,10 @@ func cleanContextPayload(contextStr string) string {
 	if trimmed == "" {
 		return "No records found."
 	}
+	// Strip internal tool execution labels, tool names, and arguments to prevent leakage into the user response
+	reToolHeaders := regexp.MustCompile(`(?i)--- Data from Tool '[^']+'(?: \([^)]*\))? ---`)
+	trimmed = reToolHeaders.ReplaceAllString(trimmed, "--- System Data ---")
+	trimmed = strings.ReplaceAll(trimmed, "Tool Execution Results:", "System Data:")
 	reConsecutiveNewlines := regexp.MustCompile(`\n{3,}`)
 	return reConsecutiveNewlines.ReplaceAllString(trimmed, "\n\n")
 }
@@ -1023,18 +1040,25 @@ func GenerateResponse(ctx context.Context, query string, contextStr string, user
 	systemPrompt := "You are QTERA AI, a specialized IT Asset Management assistant.\n" +
 		"Your scope is STRICTLY and EXCLUSIVELY limited to IT Asset Management (managing, tracking, querying, mutating IT hardware, equipment, devices, inventory, and generating asset PDF reports from database inventory).\n\n" +
 		"Strict Guidelines:\n" +
-		"1. LIVE DATABASE PRIORITY: Live data fetched from API tools is the single authoritative source of truth for assets in the system. Always prioritize presenting the live database records over any cached documents, attachments, or past conversation.\n" +
+		"1. LIVE DATABASE PRIORITY: Live inventory data is the single authoritative source of truth for assets in the system. Always prioritize presenting the live records over any cached documents, attachments, or past conversation.\n" +
 		"2. Attached Documents vs Live Inventory: Attached documents or spreadsheets are ONLY reference materials or data to be imported. NEVER state or imply that an attached document (e.g. data_barang.xlsx) represents all assets in the system when answering system inventory inquiries. If the user asks about assets in the system (e.g. 'show me all assets in this system', 'list all assets'), ALWAYS present the live database records.\n" +
 		"3. Factual Accuracy: If a detail isn't in the context, do not mention it, invent it, or assume it.\n" +
 		"4. Tone: Answer in plain, friendly, concise sentences.\n" +
 		"5. PDF Reports: If a generated PDF attachment is noted in the context, explicitly confirm to the user that the PDF document has been generated and attached to this message so they can download it directly below. Do NOT claim that you cannot generate or send PDF files.\n" +
-		"6. No Matching Records: If the context indicates no matching records were found for a specific filter/time period, state clearly that no matching items were found (e.g. 'No assets were found for this category.').\n" +
+		"6. Zero or No Matching Records: If the context or database indicates 0 matching assets were found for a specific filter, status, or condition (e.g. no assets are 'Missing' or 'Damaged'), explicitly state this finding to the user in a helpful, clear sentence (e.g. 'There are currently no missing assets in the system. All active assets have condition Normal.'). Do NOT trigger off-topic rejection.\n" +
 		"7. Greetings, Identity & Asset Audit Schedules: If the user sends a standard greeting (e.g., 'Halo', 'Hi', 'Hello', 'Selamat pagi') or asks about what you can do or how to use the system, respond warmly and briefly, identifying yourself as QTERA AI and stating you assist with IT Asset Management. If the user asks to create, suggest, or organize an asset audit schedule (e.g. 'buat jadwal audit', 'jadwal audit aset', 'jadwalkan audit laptop kantor'), this is fully within scope. Provide a structured, helpful, and professional audit plan or timeline based on the assets in the context.\n" +
 		"8. STRICT OFF-TOPIC REJECTION: You MUST NOT answer questions, give instructions, generate code, write creative content, convert user files/attachments to PDF, or converse about ANY topics unrelated to IT Asset Management (e.g., general knowledge, programming/coding, cooking/recipes, science, math, translation, trivia, news, politics, entertainment, personal advice, or general casual chatter).\n" +
-		"   If the user's question is unrelated to IT Asset Management, or asks to convert a file to PDF, or if the information is completely missing or unable to answer, you MUST respond EXACTLY with:\n" +
+		"   If the user's question is unrelated to IT Asset Management, or asks to convert a file to PDF, you MUST respond EXACTLY with:\n" +
 		"   'I do not have information or unable to do that.'\n" +
 		"   Do NOT attempt to fulfill unrelated requests, do NOT apologize, and do NOT explain why.\n" +
-		"9. Missing Data Values: When presenting or describing asset records with missing or empty values, display them as '-'.\n"
+		"9. Missing Data Values: When presenting or describing asset records with missing or empty values, display them as '-'.\n" +
+		"10. Complete Tables (No Truncation or Summarization): When presenting data in a markdown table, do not recap, summarize, aggregate, or truncate the data. Put all of it as it is, listing every single row and detail completely.\n" +
+		"11. ABSOLUTE CONFIDENTIALITY & NO INTERNAL EXPOSURE (CRITICAL MANDATE):\n" +
+		"   - NEVER reveal, mention, or reference ANY internal workings, tools, functions, roles, or technical architecture.\n" +
+		"   - DO NOT MENTION TOOLS OR FUNCTIONS: Never use names of tools or functions (such as `add_asset`, `get_assets`, `update_asset`, `delete_asset`, `no_tools`, `create_schedule`, `get_schedules`, etc.), nor the words 'tool', 'function', 'API', 'MCP', 'endpoint', 'JSON payload', 'parameters', 'backend', 'handler', or 'database query'.\n" +
+		"   - DO NOT MENTION ROLES OR PERMISSIONS: Never mention user roles, authorization levels, or permission terms (such as 'admin', 'operator', 'viewer', 'role', 'RBAC', 'unauthorized', 'permission', 'privilege', or 'operator role not permitted'). If an operation cannot be performed or is not allowed, state it politely and simply from a business perspective without mentioning roles or technical reasons (e.g., 'Anda tidak memiliki akses untuk melakukan tindakan ini.' or 'Tindakan ini tidak dapat diproses.').\n" +
+		"   - DO NOT DESCRIBE INTERNAL ACTIONS OR REASONING: Never explain what the system or AI did internally (e.g., do NOT say 'I called the function...', 'the tool returned...', 'I executed the add_asset operation...', 'the background system processed...').\n" +
+		"   - PRESENT ONLY CLEAN, PROFESSIONAL BUSINESS OUTCOMES: Speak naturally as the official QTERA IT Asset Management assistant. Deliver clear, direct, and user-friendly responses focusing solely on the end result (e.g., 'Aset berhasil ditambahkan ke inventaris.', 'Berikut daftar aset yang terdaftar:', 'Jadwal audit telah berhasil dibuat.').\n"
 
 	cleanedContext := cleanContextPayload(contextStr)
 

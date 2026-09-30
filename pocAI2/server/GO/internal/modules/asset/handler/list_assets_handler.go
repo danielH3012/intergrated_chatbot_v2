@@ -38,11 +38,15 @@ func (h *AssetHandler) HandleGetAssets(c *fiber.Ctx) error {
 		page = 1
 	}
 
-	pageSizeStr := c.Query("pageSize", "10")
+	pageSizeStr := c.Query("pageSize", "all")
 	allRecords := pageSizeStr == "all"
-	pageSize, err := strconv.Atoi(pageSizeStr)
-	if err != nil || pageSize < 1 {
-		pageSize = 10
+	pageSize := 0
+	if !allRecords {
+		var err error
+		pageSize, err = strconv.Atoi(pageSizeStr)
+		if err != nil || pageSize < 1 {
+			pageSize = 10
+		}
 	}
 
 	filter := dto.AssetListFilter{
@@ -52,6 +56,7 @@ func (h *AssetHandler) HandleGetAssets(c *fiber.Ctx) error {
 		Brand:      strings.TrimSpace(c.Query("brand")),
 		Location:   strings.TrimSpace(c.Query("location")),
 		Status:     strings.TrimSpace(c.Query("status")),
+		Condition:  strings.TrimSpace(c.Query("condition")),
 		Sort:       strings.TrimSpace(c.Query("sort", "createdAt")),
 		Order:      strings.TrimSpace(c.Query("order", "DESC")),
 		Page:       page,

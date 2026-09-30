@@ -54,7 +54,7 @@ func CreateToolsHistory(c *fiber.Ctx) error {
 	}
 
 	_, err := DB.Exec(ctx,
-		`INSERT INTO tools_history (id, perusahaan, tools, created_by_user_id, created_by_username, created_by_role, created_at)
+		`INSERT INTO public.tools_history (id, perusahaan, tools, created_by_user_id, created_by_username, created_by_role, created_at)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		entry.ID, entry.Perusahaan, entry.Tools, entry.CreatedByUserID, entry.CreatedByUsername, entry.CreatedByRole, entry.CreatedAt,
 	)

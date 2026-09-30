@@ -26,6 +26,8 @@ func (h *CompanyHandler) HandleGetCompanies(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"companies": companies,
+		"companies":  companies,
+		"perusahaan": companies,
+		"data":       companies,
 	})
 }

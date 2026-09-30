@@ -50,14 +50,31 @@ func (s *ChatService) GetUserHistory(ctx context.Context, username string) ([]dt
 		displayName := m.Username
 		if !m.IsUser && m.Role == "system" {
 			displayName = "QTERA AI"
+		} else if displayName == "" {
+			if m.IsUser {
+				displayName = "User"
+			} else {
+				displayName = "QTERA AI"
+			}
+		}
+
+		attachText := ""
+		if m.AttachmentText != nil {
+			attachText = *m.AttachmentText
 		}
 
 		response = append(response, dto.ChatHistoryResponse{
-			ID:     m.ID,
-			Chat:   m.Chat,
-			User:   m.IsUser,
-			Date:   m.CreatedAt,
-			Attach: m.Attachment,
+			ID:             m.ID,
+			Chat:           m.Chat,
+			Text:           m.Chat,
+			User:           m.IsUser,
+			CreatedAt:      m.CreatedAt,
+			Date:           m.CreatedAt,
+			Username:       displayName,
+			Role:           m.Role,
+			Models:         m.Models,
+			Attach:         m.Attachment,
+			AttachmentText: attachText,
 			UserObj: map[string]any{
 				"name": displayName,
 				"role": m.Role,

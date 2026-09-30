@@ -76,7 +76,7 @@ func GetAssets(c *fiber.Ctx) error {
 	if page < 1 {
 		page = 1
 	}
-	pageSizeStr := c.Query("pageSize", "10")
+	pageSizeStr := c.Query("pageSize", "all")
 
 	// Multi-tenancy enforcement: strictly locked to user's company from request header/token
 	perusahaan := strings.TrimSpace(userCompany)
@@ -96,7 +96,7 @@ func GetAssets(c *fiber.Ctx) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	baseQuery := ` FROM assets WHERE 1=1`
+	baseQuery := ` FROM public.assets WHERE 1=1`
 	var args []interface{}
 	idx := 1
 
@@ -240,9 +240,9 @@ func GetAssetOptions(c *fiber.Ctx) error {
 	whereClause := " WHERE LOWER(TRIM(perusahaan)) = LOWER(TRIM($1))"
 	args := []interface{}{perusahaan}
 
-	categories := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT category FROM assets`+whereClause+` ORDER BY category`, args...)
-	locations := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT location FROM assets`+whereClause+` ORDER BY location`, args...)
-	brands := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT brand FROM assets`+whereClause+` ORDER BY brand`, args...)
+	categories := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT category FROM public.assets`+whereClause+` ORDER BY category`, args...)
+	locations := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT location FROM public.assets`+whereClause+` ORDER BY location`, args...)
+	brands := queryDistinctStringsWithArgs(ctx, `SELECT DISTINCT brand FROM public.assets`+whereClause+` ORDER BY brand`, args...)
 
 	return c.JSON(fiber.Map{
 		"categories": categories,
@@ -314,7 +314,7 @@ func CreateAssetManual(c *fiber.Ctx) error {
 	defer cancel()
 
 	_, err := DB.Exec(ctx,
-		`INSERT INTO assets (asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status)
+		`INSERT INTO public.assets (asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		assetID, strings.TrimSpace(body.Name), strings.TrimSpace(body.Category), strings.TrimSpace(body.Brand),
 		strings.TrimSpace(body.ModelType), strings.TrimSpace(body.PurchaseDate), priceStr, strings.TrimSpace(body.Location),
@@ -351,7 +351,7 @@ func UpdateAsset(c *fiber.Ctx) error {
 
 	// Case-insensitive lookup to find the asset and verify company ownership
 	var canonicalID, existingCompany string
-	err := DB.QueryRow(ctx, `SELECT asset_id, COALESCE(perusahaan, '') FROM assets WHERE asset_id ILIKE $1`, id).Scan(&canonicalID, &existingCompany)
+	err := DB.QueryRow(ctx, `SELECT asset_id, COALESCE(perusahaan, '') FROM public.assets WHERE asset_id ILIKE $1`, id).Scan(&canonicalID, &existingCompany)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "asset not found"})
 	}
@@ -392,7 +392,7 @@ func UpdateAsset(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"ok": true, "assetId": canonicalID})
 	}
 
-	query := fmt.Sprintf(`UPDATE assets SET %s WHERE asset_id=$%d`, strings.Join(setClauses, ", "), idx)
+	query := fmt.Sprintf(`UPDATE public.assets SET %s WHERE asset_id=$%d`, strings.Join(setClauses, ", "), idx)
 	args = append(args, canonicalID)
 
 	_, err = DB.Exec(ctx, query, args...)
@@ -417,7 +417,7 @@ func DeleteAsset(c *fiber.Ctx) error {
 
 	// Case-insensitive lookup to find the asset and verify company ownership
 	var canonicalID, existingCompany string
-	err := DB.QueryRow(ctx, `SELECT asset_id, COALESCE(perusahaan, '') FROM assets WHERE asset_id ILIKE $1`, id).Scan(&canonicalID, &existingCompany)
+	err := DB.QueryRow(ctx, `SELECT asset_id, COALESCE(perusahaan, '') FROM public.assets WHERE asset_id ILIKE $1`, id).Scan(&canonicalID, &existingCompany)
 	if err != nil {
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{"error": "asset not found"})
 	}
@@ -428,7 +428,7 @@ func DeleteAsset(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "permission denied: cannot delete assets belonging to another company"})
 	}
 
-	_, err = DB.Exec(ctx, `DELETE FROM assets WHERE asset_id=$1`, canonicalID)
+	_, err = DB.Exec(ctx, `DELETE FROM public.assets WHERE asset_id=$1`, canonicalID)
 	if err != nil {
 		return c.Status(500).JSON(fiber.Map{"error": err.Error()})
 	}

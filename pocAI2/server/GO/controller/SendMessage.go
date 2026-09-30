@@ -90,7 +90,7 @@ func persistMessage(msgID, text, model, userID, username, role string, isUser bo
 	}
 
 	_, err := DB.Exec(ctx,
-		`INSERT INTO chat (id, "user", chat, created_at, user_id, username, role, models,
+		`INSERT INTO public.chat (id, "user", chat, created_at, user_id, username, role, models,
 		                   attachment_name, attachment_url, attachment_type, attachment_size, attachment_text)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
 		msgID, isUser, text, createdAtStr, uid, username, role, model,

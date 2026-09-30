@@ -28,10 +28,16 @@ type ChatMessageItem struct {
 
 // ChatHistoryResponse represents a list of chat items for a user.
 type ChatHistoryResponse struct {
-	ID     string            `json:"id"`
-	Chat   string            `json:"chat"`
-	User   bool              `json:"user"`
-	Date   string            `json:"date"`
-	Attach *AttachmentInfo   `json:"attachment,omitempty"`
-	UserObj map[string]any   `json:"user_obj,omitempty"`
+	ID             string          `json:"id"`
+	Chat           string          `json:"chat"`
+	Text           string          `json:"text,omitempty"`
+	User           bool            `json:"user"`
+	CreatedAt      string          `json:"created_at"`
+	Date           string          `json:"date"`
+	Username       string          `json:"username"`
+	Role           string          `json:"role"`
+	Models         string          `json:"models,omitempty"`
+	Attach         *AttachmentInfo `json:"attachment,omitempty"`
+	AttachmentText string          `json:"attachment_text,omitempty"`
+	UserObj        map[string]any  `json:"user_obj,omitempty"`
 }

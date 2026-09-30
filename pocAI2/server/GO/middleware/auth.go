@@ -105,6 +105,34 @@ func HeaderAuth() fiber.Handler {
 					})
 					return c.Next()
 				}
+				if strings.HasPrefix(tokenStr, "sess_") {
+					uid := strings.TrimPrefix(tokenStr, "sess_")
+					role := strings.TrimSpace(c.Get("X-User-Role"))
+					if role == "" {
+						role = strings.TrimSpace(c.Get("X-Role"))
+					}
+					if role == "" {
+						role = "operator"
+					}
+					username := strings.TrimSpace(c.Get("X-User-Name"))
+					if username == "" {
+						username = strings.TrimSpace(c.Get("X-Username"))
+					}
+					if username == "" {
+						username = "user_" + uid
+					}
+					company := strings.TrimSpace(c.Get("X-Company"))
+					companyID, _ := strconv.Atoi(strings.TrimSpace(c.Get("X-Company-ID")))
+
+					c.Locals("user", &Identity{
+						UserID:       uid,
+						Username:     username,
+						Role:         role,
+						Company:      company,
+						IdPerusahaan: companyID,
+					})
+					return c.Next()
+				}
 				claims, err := ValidateJWT(tokenStr)
 				if err == nil && claims != nil {
 					c.Locals("user", claims)

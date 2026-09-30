@@ -88,11 +88,13 @@ func (s *AssetService) CreateAsset(ctx context.Context, req dto.CreateAssetReque
 	if strings.TrimSpace(req.Name) == "" {
 		return "", errors.New("asset name is required")
 	}
-	if strings.TrimSpace(req.Category) == "" {
-		return "", errors.New("category is required")
+	category := strings.TrimSpace(req.Category)
+	if category == "" {
+		category = "-"
 	}
-	if strings.TrimSpace(req.Location) == "" {
-		return "", errors.New("location is required")
+	location := strings.TrimSpace(req.Location)
+	if location == "" {
+		location = "-"
 	}
 
 	assetID, err := s.GenerateAssetID(ctx)
@@ -110,20 +112,40 @@ func (s *AssetService) CreateAsset(ctx context.Context, req dto.CreateAssetReque
 		status = "active"
 	}
 
+	condition := strings.TrimSpace(req.Condition)
+	switch strings.ToLower(condition) {
+	case "damaged", "rusak", "damage":
+		condition = "Damaged"
+	case "missing", "hilang":
+		condition = "Missing"
+	case "normal", "baik", "good":
+		condition = "Normal"
+	default:
+		if condition == "" || condition == "-" {
+			condition = "Normal"
+		}
+	}
+
+	price := strings.TrimSpace(req.PurchasePrice.String())
+	if price == "" {
+		price = "-"
+	}
+
 	now := time.Now().Format(time.RFC3339)
 
 	item := dto.AssetItem{
 		AssetID:       assetID,
 		Name:          strings.TrimSpace(req.Name),
-		Category:      strings.TrimSpace(req.Category),
+		Category:      category,
 		Brand:         strings.TrimSpace(req.Brand),
 		ModelType:     strings.TrimSpace(req.ModelType),
 		PurchaseDate:  strings.TrimSpace(req.PurchaseDate),
-		PurchasePrice: strings.TrimSpace(req.PurchasePrice),
-		Location:      strings.TrimSpace(req.Location),
+		PurchasePrice: price,
+		Location:      location,
 		CreatedAt:     now,
 		Perusahaan:    perusahaan,
 		Status:        status,
+		Condition:     condition,
 	}
 
 	if err := s.repo.Create(ctx, item); err != nil {
@@ -160,13 +182,25 @@ func (s *AssetService) UpdateAsset(ctx context.Context, assetID string, req dto.
 		fields["purchase_date"] = strings.TrimSpace(*req.PurchaseDate)
 	}
 	if req.PurchasePrice != nil {
-		fields["purchase_price"] = strings.TrimSpace(*req.PurchasePrice)
+		fields["purchase_price"] = strings.TrimSpace(req.PurchasePrice.String())
 	}
 	if req.Location != nil {
 		fields["location"] = strings.TrimSpace(*req.Location)
 	}
 	if req.Status != nil {
 		fields["status"] = strings.TrimSpace(*req.Status)
+	}
+	if req.Condition != nil {
+		cond := strings.TrimSpace(*req.Condition)
+		switch strings.ToLower(cond) {
+		case "damaged", "rusak", "damage":
+			cond = "Damaged"
+		case "missing", "hilang":
+			cond = "Missing"
+		case "normal", "baik", "good":
+			cond = "Normal"
+		}
+		fields["condition"] = cond
 	}
 
 	return s.repo.Update(ctx, existing.AssetID, fields)

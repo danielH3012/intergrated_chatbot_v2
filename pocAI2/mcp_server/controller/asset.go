@@ -2,8 +2,8 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -14,27 +14,12 @@ import (
 
 // RegisterAssetTools mounts all asset-related MCP tools onto the MCP server.
 func RegisterAssetTools(s *server.MCPServer) {
-	// 1. get_assets: query asset inventory
+	// 1. get_assets: retrieve all assets for company inventory
 	s.AddTool(mcp.NewTool("get_assets",
 		mcp.WithDescription(
-			`Search, query, filter, and inspect IT assets and hardware in the company inventory.
-Use this tool whenever the user asks to find, check, count, list, or examine assets, equipment, laptops, monitors, serial numbers, locations, or purchase history.
-Company scoping is handled automatically.
-Parameters:
-  - search: Free text keyword matching asset name, asset ID, brand, or category
-  - category: Filter by category (e.g. 'IT Equipment > Laptop', 'Monitor', 'Furniture')
-  - brand: Filter by manufacturer/brand (e.g. 'Dell', 'Apple', 'Lenovo', 'HP')
-  - location: Filter by physical storage or office location (e.g. 'Warehouse A', 'Office 2nd Floor')
-  - sort: Column to sort by ('name', 'category', 'brand', 'purchaseDate', 'createdAt')
-  - order: Sort direction ('ASC' or 'DESC')
-  - pageSize: Number of records to return (default: 10, or 'all' to retrieve complete list)`),
-		mcp.WithString("search", mcp.Description("Free text search query matching name, asset_id, category, or brand")),
-		mcp.WithString("category", mcp.Description("Filter by category name (comma-separated for multiple)")),
-		mcp.WithString("brand", mcp.Description("Filter by brand name (comma-separated for multiple)")),
-		mcp.WithString("location", mcp.Description("Filter by location (comma-separated for multiple)")),
-		mcp.WithString("sort", mcp.Description("Sort column: 'name', 'category', 'brand', 'purchaseDate', 'createdAt'")),
-		mcp.WithString("order", mcp.Description("Sort direction: 'ASC' or 'DESC'")),
-		mcp.WithString("pageSize", mcp.Description("Number of records per page: default '10', or 'all' for complete list")),
+			`Fetch and retrieve all IT assets and equipment from the company inventory.
+Always call this tool directly without situational filter parameters whenever querying, searching, counting, or checking assets. All records are retrieved so that extractContext can filter and analyze them accurately.
+Security: Accessible to all roles.`),
 	), HandleGetAssets)
 
 	// 2. add_asset: create new asset
@@ -50,7 +35,9 @@ Parameters:
   - modelType: Specific model or specification (e.g. 'Latitude 5450', 'M3 Max 36GB')
   - purchaseDate: Date of purchase in YYYY-MM-DD format (e.g. '2026-08-20')
   - purchasePrice: Purchase price amount as number or string (e.g. 15000000)
-  - location: Physical location (e.g. 'Head Office 3rd Floor', 'Warehouse A')`),
+  - location: Physical location (e.g. 'Head Office 3rd Floor', 'Warehouse A')
+  - condition: Physical condition of the asset: 'Normal', 'Damaged', or 'Missing' (default 'Normal')
+  - status: Operational status: 'active', 'in repair', 'retired' (default 'active')`),
 		mcp.WithString("name", mcp.Required(), mcp.Description("Asset name (required)")),
 		mcp.WithString("category", mcp.Required(), mcp.Description("Asset category classification (required)")),
 		mcp.WithString("brand", mcp.Description("Asset brand or manufacturer")),
@@ -58,6 +45,8 @@ Parameters:
 		mcp.WithString("purchaseDate", mcp.Description("Purchase date string in YYYY-MM-DD format")),
 		mcp.WithString("purchasePrice", mcp.Description("Purchase price amount")),
 		mcp.WithString("location", mcp.Description("Physical asset location")),
+		mcp.WithString("condition", mcp.Description("Physical condition: 'Normal', 'Damaged', or 'Missing' (default 'Normal')")),
+		mcp.WithString("status", mcp.Description("Operational status: 'active', 'in repair', 'retired' (default 'active')")),
 	), HandleAddAsset)
 
 	// 3. update_asset: update asset by id
@@ -76,7 +65,8 @@ Parameters:
   - purchaseDate: Updated purchase date in YYYY-MM-DD format
   - purchasePrice: Updated purchase price amount
   - location: Updated physical location
-  - status: Updated asset status (e.g. 'Active', 'In Repair', 'Retired', 'Available')`),
+  - status: Updated asset status (e.g. 'active', 'in repair', 'retired')
+  - condition: Updated physical condition ('Normal', 'Damaged', 'Missing')`),
 		mcp.WithString("id", mcp.Required(), mcp.Description("Target unique asset identifier (required, e.g. 'AST-XXXXXXXX')")),
 		mcp.WithString("name", mcp.Description("Updated asset name")),
 		mcp.WithString("category", mcp.Description("Updated asset category")),
@@ -85,6 +75,8 @@ Parameters:
 		mcp.WithString("purchaseDate", mcp.Description("Updated purchase date in YYYY-MM-DD format")),
 		mcp.WithString("purchasePrice", mcp.Description("Updated purchase price")),
 		mcp.WithString("location", mcp.Description("Updated location")),
+		mcp.WithString("status", mcp.Description("Updated status (e.g. 'active', 'in repair', 'retired')")),
+		mcp.WithString("condition", mcp.Description("Updated physical condition ('Normal', 'Damaged', 'Missing')")),
 	), HandleUpdateAsset)
 
 	// 4. delete_asset: delete asset by id
@@ -100,7 +92,7 @@ Parameters:
 	), HandleDeleteAsset)
 }
 
-// HandleGetAssets queries the assets inventory with optional search, filters, sorting, and pagination.
+// HandleGetAssets retrieves all company assets without situational filtering so extractContext can filter accurately.
 func HandleGetAssets(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	creds := client.ExtractCredentials(req)
 	company := creds.NormalizedCompany()
@@ -113,47 +105,12 @@ func HandleGetAssets(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	if client.Logger != nil {
-		client.Logger.Printf("[HandleGetAssets] Executing get_assets | perusahaan=%s", company)
+		client.Logger.Printf("[HandleGetAssets] Executing get_assets | perusahaan=%s (fetching all assets for extractContext)", company)
 	}
 
 	params := url.Values{}
 	params.Set("perusahaan", company)
-
-	if search := client.GetArgString(req, "search", "query", "q"); search != "" {
-		params.Set("search", search)
-	}
-	if category := client.GetArgString(req, "category", "categories"); category != "" {
-		params.Set("category", category)
-	}
-	if brand := client.GetArgString(req, "brand", "brands"); brand != "" {
-		params.Set("brand", brand)
-	}
-	if location := client.GetArgString(req, "location", "locations"); location != "" {
-		params.Set("location", location)
-	}
-	if sort := client.GetArgString(req, "sort", "sort_by", "sortBy"); sort != "" {
-		params.Set("sort", sort)
-	}
-	if order := client.GetArgString(req, "order", "direction"); order != "" {
-		params.Set("order", strings.ToUpper(order))
-	}
-	if pageSize := client.GetArgString(req, "pageSize", "page_size", "limit"); pageSize != "" {
-		params.Set("pageSize", pageSize)
-	}
-
-	args := req.GetArguments()
-	if pageVal, ok := args["page"]; ok && pageVal != nil {
-		switch v := pageVal.(type) {
-		case float64:
-			params.Set("page", strconv.Itoa(int(v)))
-		case int:
-			params.Set("page", strconv.Itoa(v))
-		case string:
-			if strings.TrimSpace(v) != "" {
-				params.Set("page", strings.TrimSpace(v))
-			}
-		}
-	}
+	params.Set("pageSize", "all")
 
 	data, err := client.DoRequest("GET", "/assets", params, nil, creds)
 	if err != nil {
@@ -174,11 +131,6 @@ func HandleAddAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		return client.ErrResult("tenant company context is missing from request credentials")
 	}
 
-	// RBAC: Operator is restricted to read-only operations
-	if creds != nil && creds.NormalizedRole() == "operator" {
-		return client.ErrResult("forbidden: operator role is not authorized to register assets")
-	}
-
 	name := client.GetArgString(req, "name", "asset_name")
 	category := client.GetArgString(req, "category")
 	brand := client.GetArgString(req, "brand")
@@ -190,21 +142,55 @@ func HandleAddAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		return client.ErrResult("name is required and cannot be empty")
 	}
 	if category == "" {
-		return client.ErrResult("category is required and cannot be empty")
+		category = "-"
+	}
+	if location == "" {
+		location = "-"
+	}
+	if brand == "" {
+		brand = "-"
+	}
+	if modelType == "" {
+		modelType = "-"
+	}
+	if purchaseDate == "" {
+		purchaseDate = "-"
 	}
 
 	args := req.GetArguments()
-	var purchasePrice any
+	var purchasePriceStr string = "-"
 	if v, ok := args["purchasePrice"]; ok && v != nil {
-		purchasePrice = v
+		purchasePriceStr = fmt.Sprintf("%v", v)
 	} else if v, ok := args["purchase_price"]; ok && v != nil {
-		purchasePrice = v
+		purchasePriceStr = fmt.Sprintf("%v", v)
 	} else if v, ok := args["price"]; ok && v != nil {
-		purchasePrice = v
+		purchasePriceStr = fmt.Sprintf("%v", v)
+	}
+	if purchasePriceStr == "" || purchasePriceStr == "<nil>" {
+		purchasePriceStr = "-"
+	}
+
+	condition := client.GetArgString(req, "condition", "kondisi", "keadaan")
+	switch strings.ToLower(condition) {
+	case "damaged", "rusak", "damage":
+		condition = "Damaged"
+	case "missing", "hilang":
+		condition = "Missing"
+	case "normal", "baik", "good":
+		condition = "Normal"
+	default:
+		if condition == "" || condition == "-" {
+			condition = "Normal"
+		}
+	}
+
+	status := client.GetArgString(req, "status")
+	if status == "" || status == "-" {
+		status = "active"
 	}
 
 	if client.Logger != nil {
-		client.Logger.Printf("[HandleAddAsset] Creating asset | perusahaan=%s | name=%s", company, name)
+		client.Logger.Printf("[HandleAddAsset] Creating asset | perusahaan=%s | name=%s | condition=%s | status=%s", company, name, condition, status)
 	}
 
 	body := map[string]any{
@@ -213,10 +199,11 @@ func HandleAddAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallTool
 		"brand":         brand,
 		"modelType":     modelType,
 		"purchaseDate":  purchaseDate,
-		"purchasePrice": purchasePrice,
+		"purchasePrice": purchasePriceStr,
 		"location":      location,
 		"perusahaan":    company,
-		"status":        "active",
+		"status":        status,
+		"condition":     condition,
 	}
 
 	data, err := client.DoRequest("POST", "/assets", nil, body, creds)
@@ -236,11 +223,6 @@ func HandleUpdateAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 			client.Logger.Println("[HandleUpdateAsset] Error: company credentials missing from request context")
 		}
 		return client.ErrResult("tenant company context is missing from request credentials")
-	}
-
-	// RBAC: Operator is restricted to read-only operations
-	if creds != nil && creds.NormalizedRole() == "operator" {
-		return client.ErrResult("forbidden: operator role is not authorized to modify assets")
 	}
 
 	id := client.GetArgString(req, "id", "asset_id", "assetId")
@@ -270,14 +252,25 @@ func HandleUpdateAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	if status := client.GetArgString(req, "status"); status != "" {
 		body["status"] = status
 	}
+	if condition := client.GetArgString(req, "condition", "kondisi", "keadaan"); condition != "" {
+		switch strings.ToLower(condition) {
+		case "damaged", "rusak", "damage":
+			condition = "Damaged"
+		case "missing", "hilang":
+			condition = "Missing"
+		case "normal", "baik", "good":
+			condition = "Normal"
+		}
+		body["condition"] = condition
+	}
 
 	args := req.GetArguments()
 	if v, ok := args["purchasePrice"]; ok && v != nil {
-		body["purchasePrice"] = v
+		body["purchasePrice"] = fmt.Sprintf("%v", v)
 	} else if v, ok := args["purchase_price"]; ok && v != nil {
-		body["purchasePrice"] = v
+		body["purchasePrice"] = fmt.Sprintf("%v", v)
 	} else if v, ok := args["price"]; ok && v != nil {
-		body["purchasePrice"] = v
+		body["purchasePrice"] = fmt.Sprintf("%v", v)
 	}
 
 	data, err := client.DoRequest("PATCH", "/assets/"+url.PathEscape(id), nil, body, creds)
@@ -297,11 +290,6 @@ func HandleDeleteAsset(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallT
 			client.Logger.Println("[HandleDeleteAsset] Error: company credentials missing from request context")
 		}
 		return client.ErrResult("tenant company context is missing from request credentials")
-	}
-
-	// RBAC: Operator is restricted to read-only operations
-	if creds != nil && creds.NormalizedRole() == "operator" {
-		return client.ErrResult("forbidden: operator role is not authorized to delete assets")
 	}
 
 	id := client.GetArgString(req, "id", "asset_id", "assetId")

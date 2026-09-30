@@ -120,6 +120,7 @@ async function getPerusahaanList() {
     const res = await fetch(`${API_BASE}/api/perusahaan`);
     const data = await handleResponse(res);
     if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.companies)) return data.companies;
     if (data && Array.isArray(data.perusahaan)) return data.perusahaan;
     if (data && Array.isArray(data.data)) return data.data;
     return [];

@@ -834,13 +834,61 @@ func executeSingleTool(ctx context.Context, client *client.Client, fnName string
 
 	var parsedResult any
 	if err := json.Unmarshal([]byte(rawContent), &parsedResult); err != nil {
-		parsedResult = rawContent
+		parsedResult = strings.ToLower(rawContent)
+	} else {
+		parsedResult = NormalizeDataToLowercase(parsedResult)
 	}
 
 	return ToolExecutionResult{
 		Tool:   targetTool,
 		Args:   args,
 		Result: parsedResult,
+	}
+}
+
+// NormalizeDataToLowercase recursively normalizes string values and keys in MCP tool data to lowercase.
+func NormalizeDataToLowercase(data any) any {
+	if data == nil {
+		return nil
+	}
+	switch v := data.(type) {
+	case string:
+		return strings.ToLower(v)
+	case map[string]any:
+		res := make(map[string]any, len(v))
+		for k, val := range v {
+			lowerK := strings.ToLower(k)
+			// Preserve URL or download path if applicable
+			if lowerK == "download_url" || lowerK == "url" || lowerK == "attachment_url" {
+				res[lowerK] = val
+				if lowerK != k {
+					res[k] = val
+				}
+			} else {
+				normalizedVal := NormalizeDataToLowercase(val)
+				res[lowerK] = normalizedVal
+				if lowerK != k {
+					res[k] = normalizedVal
+				}
+			}
+		}
+		return res
+	case []any:
+		res := make([]any, len(v))
+		for i, val := range v {
+			res[i] = NormalizeDataToLowercase(val)
+		}
+		return res
+	case []map[string]any:
+		res := make([]map[string]any, len(v))
+		for i, val := range v {
+			if m, ok := NormalizeDataToLowercase(val).(map[string]any); ok {
+				res[i] = m
+			}
+		}
+		return res
+	default:
+		return v
 	}
 }
 
@@ -865,11 +913,13 @@ func formatMultiRawDataForLlm(accumulatedResults []ToolExecutionResult) string {
 	return strings.Join(blocks, "\n\n")
 }
 
-// formatRawDataForLlm compresses and formats raw API result data compactly to minimize prompt tokens.
+// formatRawDataForLlm compresses and formats raw API result data compactly to lowercase to minimize prompt tokens.
 func formatRawDataForLlm(result any) string {
 	if result == nil {
 		return "None"
 	}
+
+	result = NormalizeDataToLowercase(result)
 
 	switch v := result.(type) {
 	case string:
@@ -889,3 +939,4 @@ func formatRawDataForLlm(result any) string {
 		return fmt.Sprintf("%v", result)
 	}
 }
+

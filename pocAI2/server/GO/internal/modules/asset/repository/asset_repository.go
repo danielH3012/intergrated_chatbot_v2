@@ -42,7 +42,7 @@ func (r *assetRepository) List(ctx context.Context, filter dto.AssetListFilter) 
 	}
 
 	// Fetch data rows
-	dataQuery := "SELECT asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status FROM public.assets" + whereClause + sortClause + limitClause
+	dataQuery := "SELECT asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status, COALESCE(condition, 'Normal') FROM public.assets" + whereClause + sortClause + limitClause
 	rows, err := r.db.Query(ctx, dataQuery, args...)
 	if err != nil {
 		return nil, 0, err
@@ -52,7 +52,7 @@ func (r *assetRepository) List(ctx context.Context, filter dto.AssetListFilter) 
 	var assets []dto.AssetItem
 	for rows.Next() {
 		var a dto.AssetItem
-		if err := rows.Scan(&a.AssetID, &a.Name, &a.Category, &a.Brand, &a.ModelType, &a.PurchaseDate, &a.PurchasePrice, &a.Location, &a.CreatedAt, &a.Perusahaan, &a.Status); err != nil {
+		if err := rows.Scan(&a.AssetID, &a.Name, &a.Category, &a.Brand, &a.ModelType, &a.PurchaseDate, &a.PurchasePrice, &a.Location, &a.CreatedAt, &a.Perusahaan, &a.Status, &a.Condition); err != nil {
 			return nil, 0, err
 		}
 		assets = append(assets, a)
@@ -65,9 +65,9 @@ func (r *assetRepository) List(ctx context.Context, filter dto.AssetListFilter) 
 }
 
 func (r *assetRepository) GetByID(ctx context.Context, assetID string) (*dto.AssetItem, error) {
-	query := `SELECT asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status FROM public.assets WHERE asset_id ILIKE $1 LIMIT 1`
+	query := `SELECT asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status, COALESCE(condition, 'Normal') FROM public.assets WHERE asset_id ILIKE $1 LIMIT 1`
 	var a dto.AssetItem
-	err := r.db.QueryRow(ctx, query, assetID).Scan(&a.AssetID, &a.Name, &a.Category, &a.Brand, &a.ModelType, &a.PurchaseDate, &a.PurchasePrice, &a.Location, &a.CreatedAt, &a.Perusahaan, &a.Status)
+	err := r.db.QueryRow(ctx, query, assetID).Scan(&a.AssetID, &a.Name, &a.Category, &a.Brand, &a.ModelType, &a.PurchaseDate, &a.PurchasePrice, &a.Location, &a.CreatedAt, &a.Perusahaan, &a.Status, &a.Condition)
 	if err != nil {
 		return nil, err
 	}
@@ -112,10 +112,10 @@ func (r *assetRepository) GetOptions(ctx context.Context, perusahaan string) (dt
 
 func (r *assetRepository) Create(ctx context.Context, a dto.AssetItem) error {
 	query := `
-		INSERT INTO public.assets (asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		INSERT INTO public.assets (asset_id, name, category, brand, model_type, purchase_date, purchase_price, location, created_at, perusahaan, status, condition)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	`
-	_, err := r.db.Exec(ctx, query, a.AssetID, a.Name, a.Category, a.Brand, a.ModelType, a.PurchaseDate, a.PurchasePrice, a.Location, a.CreatedAt, a.Perusahaan, a.Status)
+	_, err := r.db.Exec(ctx, query, a.AssetID, a.Name, a.Category, a.Brand, a.ModelType, a.PurchaseDate, a.PurchasePrice, a.Location, a.CreatedAt, a.Perusahaan, a.Status, a.Condition)
 	return err
 }
 
@@ -134,7 +134,7 @@ func (r *assetRepository) Update(ctx context.Context, assetID string, fields map
 		idx++
 	}
 
-	query := fmt.Sprintf("UPDATE public.assets SET %s WHERE asset_id = $%d", strings.Join(setClauses, ", "), idx)
+	query := fmt.Sprintf("UPDATE public.assets SET %s WHERE asset_id ILIKE $%d", strings.Join(setClauses, ", "), idx)
 	args = append(args, assetID)
 
 	_, err := r.db.Exec(ctx, query, args...)
