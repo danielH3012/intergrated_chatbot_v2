@@ -8,7 +8,7 @@ import {
   getAssets,
 } from './services.js'
 
-export default function BorrowApprovalPage({ showToast, onBack }) {
+export default function BorrowApprovalPage({ showToast, onBack, onGoHold, initialTrxId }) {
   const [approvals, setApprovals] = useState([])
   const [loadingList, setLoadingList] = useState(true)
   const [selectedTrxId, setSelectedTrxId] = useState(null)
@@ -24,8 +24,7 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
   const [anomalyModalOpen, setAnomalyModalOpen] = useState(false)
   const [loadingAnomaly, setLoadingAnomaly] = useState(false)
   const [anomalyData, setAnomalyData] = useState(null)
-
-  // Create New Request State
+  const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'pending_approval' | 'approved' | 'rejected'
   const [newModalOpen, setNewModalOpen] = useState(false)
   const [availableAssets, setAvailableAssets] = useState([])
   const [submittingNew, setSubmittingNew] = useState(false)
@@ -37,14 +36,24 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
   })
 
   // Load approvals list
-  const loadApprovals = async () => {
+  const loadApprovals = async (targetId = initialTrxId) => {
     setLoadingList(true)
     try {
       const res = await getBorrowApprovals()
-      setApprovals(res.transactions || [])
-      if (res.transactions && res.transactions.length > 0 && !selectedTrxId) {
-        // default select first
-        handleSelectTrx(res.transactions[0].id)
+      const txs = res.transactions || []
+      setApprovals(txs)
+      if (txs.length > 0) {
+        if (targetId) {
+          const match = txs.find((t) => t.id === targetId || t.transaction_code === targetId)
+          if (match) {
+            handleSelectTrx(match.id)
+          } else {
+            handleSelectTrx(targetId)
+          }
+        } else if (!selectedTrxId) {
+          // default select first
+          handleSelectTrx(txs[0].id)
+        }
       }
     } catch (err) {
       showToast('Gagal memuat daftar approval: ' + err.message, 'warning')
@@ -54,8 +63,8 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
   }
 
   useEffect(() => {
-    loadApprovals()
-  }, [])
+    loadApprovals(initialTrxId)
+  }, [initialTrxId])
 
   // Select transaction
   const handleSelectTrx = async (id) => {
@@ -136,12 +145,20 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
           is_approved: decision === 'reject' ? false : it.is_approved,
         })),
       })
-      showToast(`Transaksi ${trxDetail?.transaction_code} berhasil di-${decision === 'reject' ? 'tolak' : 'setujui'}.`, 'default')
-      setSelectedTrxId(null)
-      setTrxDetail(null)
-      setSubmitAttempted(false)
-      setFormError('')
-      loadApprovals()
+      if (decision === 'reject') {
+        showToast(`Transaksi ${trxDetail?.transaction_code} berhasil ditolak dan dihapus dari antrean.`, 'default')
+        setSelectedTrxId(null)
+        setTrxDetail(null)
+        setSubmitAttempted(false)
+        setFormError('')
+        await loadApprovals(null)
+      } else {
+        showToast(`Transaksi ${trxDetail?.transaction_code} berhasil disetujui.`, 'default')
+        setSubmitAttempted(false)
+        setFormError('')
+        await loadApprovals(selectedTrxId)
+        await handleSelectTrx(selectedTrxId)
+      }
     } catch (err) {
       const errMsg = 'Gagal menyimpan keputusan approval: ' + err.message
       setFormError(errMsg)
@@ -243,6 +260,15 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
+          {onGoHold && (
+            <button
+              onClick={onGoHold}
+              className="btn btn-outline btn-sm"
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#b45309', borderColor: '#fde68a' }}
+            >
+              <i className="ph ph-hourglass-high" /> Buka Hold Asset (AI)
+            </button>
+          )}
           <button
             onClick={openNewRequestModal}
             className="btn btn-primary btn-sm"
@@ -273,12 +299,12 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
             overflowY: 'auto',
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <span style={{ fontSize: '14px', fontWeight: '600', color: '#475569' }}>
-              Pending Approvals ({approvals.length})
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '14px', fontWeight: '700', color: '#1e293b' }}>
+              Daftar Approval ({approvals.length})
             </span>
             <button
-              onClick={loadApprovals}
+              onClick={() => loadApprovals(selectedTrxId)}
               className="btn btn-ghost btn-xs"
               title="Refresh daftar"
               style={{ padding: '4px 8px' }}
@@ -287,59 +313,128 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
             </button>
           </div>
 
+          {/* Status Filter Tabs */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', marginBottom: '12px', backgroundColor: '#f1f5f9', padding: '3px', borderRadius: '8px' }}>
+            <button
+              onClick={() => setStatusFilter('all')}
+              style={{
+                border: 'none',
+                borderRadius: '6px',
+                padding: '4px 2px',
+                fontSize: '11px',
+                fontWeight: statusFilter === 'all' ? '700' : '500',
+                backgroundColor: statusFilter === 'all' ? '#ffffff' : 'transparent',
+                color: statusFilter === 'all' ? '#1e293b' : '#64748b',
+                cursor: 'pointer',
+                boxShadow: statusFilter === 'all' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              }}
+            >
+              Semua ({approvals.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('pending_approval')}
+              style={{
+                border: 'none',
+                borderRadius: '6px',
+                padding: '4px 2px',
+                fontSize: '11px',
+                fontWeight: statusFilter === 'pending_approval' ? '700' : '500',
+                backgroundColor: statusFilter === 'pending_approval' ? '#ffffff' : 'transparent',
+                color: statusFilter === 'pending_approval' ? '#b45309' : '#64748b',
+                cursor: 'pointer',
+                boxShadow: statusFilter === 'pending_approval' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              }}
+            >
+              Pending ({approvals.filter((t) => t.status === 'pending_approval').length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('approved')}
+              style={{
+                border: 'none',
+                borderRadius: '6px',
+                padding: '4px 2px',
+                fontSize: '11px',
+                fontWeight: statusFilter === 'approved' ? '700' : '500',
+                backgroundColor: statusFilter === 'approved' ? '#ffffff' : 'transparent',
+                color: statusFilter === 'approved' ? '#15803d' : '#64748b',
+                cursor: 'pointer',
+                boxShadow: statusFilter === 'approved' ? '0 1px 2px rgba(0,0,0,0.06)' : 'none',
+              }}
+            >
+              Setuju ({approvals.filter((t) => t.status === 'approved').length})
+            </button>
+          </div>
+
           {loadingList ? (
             <div style={{ padding: '32px 0', textAlign: 'center', color: '#94a3b8' }}>
               <span className="spinner" /> Memuat daftar...
             </div>
-          ) : approvals.length === 0 ? (
+          ) : approvals.filter((t) => statusFilter === 'all' || t.status === statusFilter).length === 0 ? (
             <div style={{ padding: '32px 16px', textAlign: 'center', color: '#94a3b8' }}>
               <i className="ph ph-check-circle" style={{ fontSize: '32px', color: '#10b981', display: 'block', marginBottom: '8px' }} />
-              Tidak ada permohonan peminjaman yang tertunda.
+              Tidak ada permohonan dalam kategori ini.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {approvals.map((trx) => {
-                const isSelected = trx.id === selectedTrxId
-                return (
-                  <div
-                    key={trx.id}
-                    onClick={() => handleSelectTrx(trx.id)}
-                    style={{
-                      padding: '12px',
-                      borderRadius: '8px',
-                      border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
-                      backgroundColor: isSelected ? '#f5f3ff' : '#f8fafc',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                      <span style={{ fontWeight: '700', fontSize: '13px', color: isSelected ? '#4f46e5' : '#1e293b' }}>
-                        {trx.transaction_code}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          backgroundColor: '#e0e7ff',
-                          color: '#3730a3',
-                        }}
-                      >
-                        {trx.item_count || 1} aset
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#475569', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                      <div><strong>Peminjam:</strong> {trx.borrower_name}</div>
-                      <div><strong>Group:</strong> {trx.group_name}</div>
-                      <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
-                        {new Date(trx.request_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+              {approvals
+                .filter((t) => statusFilter === 'all' || t.status === statusFilter)
+                .map((trx) => {
+                  const isSelected = trx.id === selectedTrxId
+                  return (
+                    <div
+                      key={trx.id}
+                      onClick={() => handleSelectTrx(trx.id)}
+                      style={{
+                        padding: '12px',
+                        borderRadius: '8px',
+                        border: isSelected ? '2px solid #6366f1' : '1px solid #e2e8f0',
+                        backgroundColor: isSelected ? '#f5f3ff' : '#f8fafc',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                        <span style={{ fontWeight: '700', fontSize: '13px', color: isSelected ? '#4f46e5' : '#1e293b' }}>
+                          {trx.transaction_code}
+                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          {trx.status === 'rejected' ? (
+                            <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#fee2e2', color: '#b91c1c' }}>
+                              Ditolak
+                            </span>
+                          ) : trx.status === 'approved' ? (
+                            <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#dcfce7', color: '#15803d' }}>
+                              Disetujui
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '10px', fontWeight: '700', padding: '1px 5px', borderRadius: '4px', backgroundColor: '#fef3c7', color: '#92400e' }}>
+                              Pending
+                            </span>
+                          )}
+                          <span
+                            style={{
+                              fontSize: '11px',
+                              fontWeight: '600',
+                              padding: '1px 5px',
+                              borderRadius: '4px',
+                              backgroundColor: '#e0e7ff',
+                              color: '#3730a3',
+                            }}
+                          >
+                            {trx.item_count || 1} aset
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '12px', color: '#475569', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        <div><strong>Peminjam:</strong> {trx.borrower_name}</div>
+                        <div><strong>Group:</strong> {trx.group_name}</div>
+                        <div style={{ color: '#94a3b8', fontSize: '11px', marginTop: '4px' }}>
+                          {new Date(trx.request_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
             </div>
           )}
         </div>
@@ -395,18 +490,59 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
                     <span style={{ fontSize: '18px', fontWeight: '800', color: '#1e293b' }}>
                       {trxDetail.transaction_code}
                     </span>
-                    <span
-                      style={{
-                        fontSize: '12px',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        backgroundColor: '#fef3c7',
-                        color: '#92400e',
-                        fontWeight: '600',
-                      }}
-                    >
-                      Pending Approval
-                    </span>
+                    {trxDetail.status === 'rejected' ? (
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: '#fee2e2',
+                          color: '#b91c1c',
+                          fontWeight: '700',
+                        }}
+                      >
+                        🔴 Ditolak
+                      </span>
+                    ) : trxDetail.status === 'approved' ? (
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: '#dcfce7',
+                          color: '#15803d',
+                          fontWeight: '700',
+                        }}
+                      >
+                        🟢 Disetujui
+                      </span>
+                    ) : trxDetail.status === 'active' ? (
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: '#e0e7ff',
+                          color: '#3730a3',
+                          fontWeight: '700',
+                        }}
+                      >
+                        🔵 Sedang Dipinjam
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          backgroundColor: '#fef3c7',
+                          color: '#92400e',
+                          fontWeight: '700',
+                        }}
+                      >
+                        🟡 Menunggu Approval
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: '20px', fontSize: '13px', color: '#475569', flexWrap: 'wrap' }}>
                     <div>
@@ -655,31 +791,63 @@ export default function BorrowApprovalPage({ showToast, onBack }) {
                 )}
 
                 {/* Submit Decision Footer */}
-                <div
-                  style={{
-                    padding: '16px 20px',
-                    backgroundColor: '#f8fafc',
-                    borderTop: '1px solid #e2e8f0',
-                    display: 'flex',
-                    justifyContent: 'flex-end',
-                    gap: '12px',
-                  }}
-                >
-                  <button
-                    onClick={() => handleSubmitDecision('reject')}
-                    className="btn btn-danger btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                {trxDetail.status === 'pending_approval' ? (
+                  <div
+                    style={{
+                      padding: '16px 20px',
+                      backgroundColor: '#f8fafc',
+                      borderTop: '1px solid #e2e8f0',
+                      display: 'flex',
+                      justifyContent: 'flex-end',
+                      gap: '12px',
+                    }}
                   >
-                    <i className="ph ph-x-circle" /> Tolak Seluruh Transaksi
-                  </button>
-                  <button
-                    onClick={() => handleSubmitDecision('approve')}
-                    className="btn btn-primary btn-sm"
-                    style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    <button
+                      onClick={() => handleSubmitDecision('reject')}
+                      className="btn btn-danger btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <i className="ph ph-x-circle" /> Tolak Seluruh Transaksi
+                    </button>
+                    <button
+                      onClick={() => handleSubmitDecision('approve')}
+                      className="btn btn-primary btn-sm"
+                      style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <i className="ph ph-check-circle" /> Setujui Peminjaman
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      padding: '16px 20px',
+                      backgroundColor: trxDetail.status === 'rejected' ? '#fef2f2' : '#f0fdf4',
+                      borderTop: `1px solid ${trxDetail.status === 'rejected' ? '#fecaca' : '#bbf7d0'}`,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
                   >
-                    <i className="ph ph-check-circle" /> Setujui Peminjaman
-                  </button>
-                </div>
+                    <i
+                      className={trxDetail.status === 'rejected' ? 'ph ph-x-circle' : 'ph ph-check-circle'}
+                      style={{
+                        fontSize: '24px',
+                        color: trxDetail.status === 'rejected' ? '#dc2626' : '#16a34a',
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div>
+                      <strong style={{ fontSize: '14px', color: trxDetail.status === 'rejected' ? '#991b1b' : '#166534' }}>
+                        {trxDetail.status === 'rejected' ? 'Transaksi Telah Ditolak' : 'Transaksi Telah Disetujui'}
+                      </strong>
+                      <p style={{ margin: '2px 0 0', fontSize: '12px', color: trxDetail.status === 'rejected' ? '#b91c1c' : '#15803d' }}>
+                        {trxDetail.status === 'rejected'
+                          ? 'Data transaksi peminjaman ini tidak dihapus dan tetap tersimpan utuh dalam arsip riwayat sistem.'
+                          : 'Data transaksi peminjaman ini telah resmi diproses dan tersimpan dalam sistem.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </>
           )}

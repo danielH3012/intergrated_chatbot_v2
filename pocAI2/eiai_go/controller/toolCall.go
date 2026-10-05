@@ -23,17 +23,17 @@ import (
 // ROLE_TOOL_PERMISSIONS defines accessible tools per user role.
 var ROLE_TOOL_PERMISSIONS = map[string][]string{
 	"admin": {
-		"get_assets", "add_asset", "update_asset", "delete_asset", "generate_pdf", "generate_csv", "generate_excel", "create_schedule", "get_schedules", "no_tools",
+		"get_assets", "add_asset", "update_asset", "delete_asset", "generate_pdf", "generate_csv", "generate_excel", "create_schedule", "get_schedules", "create_borrow_transaction", "get_borrow_transactions", "get_borrow_history_recommendations", "check_borrow_anomalies", "get_borrow_threshold_settings", "update_borrow_threshold_settings", "no_tools",
 	},
 	"operator": {
-		"get_assets", "add_asset", "update_asset", "generate_pdf", "generate_csv", "generate_excel", "create_schedule", "get_schedules", "no_tools",
+		"get_assets", "add_asset", "update_asset", "generate_pdf", "generate_csv", "generate_excel", "create_schedule", "get_schedules", "create_borrow_transaction", "get_borrow_transactions", "get_borrow_history_recommendations", "check_borrow_anomalies", "get_borrow_threshold_settings", "no_tools",
 	},
 	"viewer": {
-		"get_assets", "generate_pdf", "generate_csv", "generate_excel", "get_schedules", "no_tools",
+		"get_assets", "generate_pdf", "generate_csv", "generate_excel", "get_schedules", "get_borrow_transactions", "get_borrow_history_recommendations", "check_borrow_anomalies", "get_borrow_threshold_settings", "no_tools",
 	},
 }
 
-var INTERNAL_PARAM_NAMES = []string{"credentials"}
+var INTERNAL_PARAM_NAMES = []string{"credentials", "manager_name", "borrower_id", "manager_id"}
 
 type ToolCall struct {
 	Name      string         `json:"name"`
@@ -148,7 +148,27 @@ func filterRoles(mcp_tools []mcp.Tool, role string) []mcp.Tool {
 	var tool_filtered []mcp.Tool
 	for _, t := range mcp_tools {
 		if slices.Contains(allowed, t.Name) {
-			tool_filtered = append(tool_filtered, t)
+			toolCopy := t
+			// Hide internal parameters (credentials, manager_name, borrower_id, manager_id) from AI
+			if toolCopy.InputSchema.Properties != nil {
+				newProps := make(map[string]any)
+				for k, v := range toolCopy.InputSchema.Properties {
+					if !slices.Contains(INTERNAL_PARAM_NAMES, k) {
+						newProps[k] = v
+					}
+				}
+				toolCopy.InputSchema.Properties = newProps
+			}
+			if len(toolCopy.InputSchema.Required) > 0 {
+				var newReq []string
+				for _, r := range toolCopy.InputSchema.Required {
+					if !slices.Contains(INTERNAL_PARAM_NAMES, r) {
+						newReq = append(newReq, r)
+					}
+				}
+				toolCopy.InputSchema.Required = newReq
+			}
+			tool_filtered = append(tool_filtered, toolCopy)
 		}
 	}
 	return tool_filtered
@@ -284,7 +304,7 @@ func tryParseToolCalls(text string) []ToolCall {
 
 	// 5. Fallback: only if explicit asset ID mention exists alongside tool name
 	knownTools := []string{
-		"get_assets", "add_asset", "update_asset", "delete_asset", "generate_pdf", "generate_csv", "generate_excel", "no_tools",
+		"get_assets", "add_asset", "update_asset", "delete_asset", "generate_pdf", "generate_csv", "generate_excel", "create_borrow_transaction", "get_borrow_transactions", "check_borrow_anomalies", "create_schedule", "get_schedules", "no_tools",
 	}
 	for _, tool := range knownTools {
 		baseName := strings.TrimSuffix(tool, "s")
@@ -582,15 +602,22 @@ func parsePythonKwargs(argsStr string) map[string]any {
 // [generate_pdf{headers=[...], data=[...], title='...'}]
 func parsePythonToolCalls(text string) []ToolCall {
 	knownTools := map[string]bool{
-		"get_assets":     true,
-		"add_asset":      true,
-		"update_asset":   true,
-		"delete_asset":   true,
-		"generate_pdf":   true,
-		"generate_csv":   true,
-		"generate_excel": true,
-		"no_tools":       true,
-		"no_tool":        true,
+		"get_assets":                    true,
+		"add_asset":                     true,
+		"update_asset":                  true,
+		"delete_asset":                  true,
+		"generate_pdf":                  true,
+		"generate_csv":                  true,
+		"generate_excel":                true,
+		"create_borrow_transaction":     true,
+		"create_transaction":            true,
+		"get_borrow_transactions":       true,
+		"check_borrow_anomalies":        true,
+		"get_borrow_threshold_settings": true,
+		"create_schedule":               true,
+		"get_schedules":                 true,
+		"no_tools":                      true,
+		"no_tool":                       true,
 	}
 
 	var calls []ToolCall
@@ -808,6 +835,56 @@ func executeSingleTool(ctx context.Context, client *client.Client, fnName string
 	}
 	if userContext != nil {
 		callArgs["credentials"] = userContext
+
+		// Directly inject user credentials into MCP tool arguments (borrower_id and manager_id refer to user_id)
+		if uCtxMap, ok := userContext.(map[string]any); ok && uCtxMap != nil {
+			userID := ""
+			userName := ""
+			if uid, ok := uCtxMap["user_id"].(string); ok && strings.TrimSpace(uid) != "" && !strings.EqualFold(uid, "anonymous") {
+				userID = strings.TrimSpace(uid)
+			}
+			if uName, ok := uCtxMap["username"].(string); ok && strings.TrimSpace(uName) != "" && !strings.EqualFold(uName, "anonymous") {
+				userName = strings.TrimSpace(uName)
+				if userID == "" {
+					userID = userName
+				}
+			} else if nameVal, ok := uCtxMap["name"].(string); ok && strings.TrimSpace(nameVal) != "" {
+				userName = strings.TrimSpace(nameVal)
+				if userID == "" {
+					userID = userName
+				}
+			}
+
+			if fnNameCleaned == "create_borrow_transaction" || targetTool == "create_borrow_transaction" ||
+				fnNameCleaned == "create_transaction" || targetTool == "create_transaction" {
+				// Inject manager credentials (manager_id and manager_name)
+				if userID != "" {
+					callArgs["manager_id"] = userID
+				}
+				if userName != "" {
+					callArgs["manager_name"] = userName
+				}
+				// Preserve borrower_name from AI if provided; fallback to userName only if empty
+				existingBorrowerName := strings.TrimSpace(fmt.Sprintf("%v", callArgs["borrower_name"]))
+				if existingBorrowerName == "" || existingBorrowerName == "<nil>" || existingBorrowerName == "-" {
+					if userName != "" {
+						callArgs["borrower_name"] = userName
+					}
+				}
+				log.Printf("[executeSingleTool] Manager credentials injected: manager_id=%v manager_name=%v | borrower_name=%v",
+					callArgs["manager_id"], callArgs["manager_name"], callArgs["borrower_name"])
+			}
+
+			if comp, ok := uCtxMap["company"].(string); ok && strings.TrimSpace(comp) != "" {
+				if fnNameCleaned == "create_borrow_transaction" || targetTool == "create_borrow_transaction" ||
+					fnNameCleaned == "create_transaction" || targetTool == "create_transaction" {
+					existingGroup := strings.TrimSpace(fmt.Sprintf("%v", callArgs["group_name"]))
+					if existingGroup == "" || existingGroup == "<nil>" || existingGroup == "-" {
+						callArgs["group_name"] = strings.TrimSpace(comp)
+					}
+				}
+			}
+		}
 	}
 
 	res, err := client.CallTool(ctx, mcp.CallToolRequest{

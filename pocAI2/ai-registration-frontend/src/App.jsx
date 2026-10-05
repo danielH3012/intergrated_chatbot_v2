@@ -17,6 +17,7 @@ import {
 import { AuthProvider } from './AuthContext.jsx'
 import Chat from './Chat.jsx'
 import BorrowApprovalPage from './BorrowApprovalPage.jsx'
+import HoldBorrowPage from './HoldBorrowPage.jsx'
 
 // ---------------------------------------------------------------------
 // Constants
@@ -68,7 +69,7 @@ function EmptyState({ icon, title, cta }) {
 // Navigation Bar
 // ---------------------------------------------------------------------
 
-function TopNavBar({ user, onLogout, onGoList, onGoApprovals, page }) {
+function TopNavBar({ user, onLogout, onGoList, onGoApprovals, onGoHold, page }) {
   const roleColors = {
     admin: { bg: '#f3e8ff', color: '#7e22ce', border: '#d8b4fe' },
     operator: { bg: '#dbeafe', color: '#1d4ed8', border: '#93c5fd' },
@@ -89,13 +90,24 @@ function TopNavBar({ user, onLogout, onGoList, onGoApprovals, page }) {
           <i className="ph ph-arrow-left" /> Back to Assets
         </button>
       ) : (
-        <button
-          className="btn btn-ghost btn-sm"
-          onClick={onGoApprovals}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginLeft: '12px', color: '#4f46e5', fontWeight: '600' }}
-        >
-          <i className="ph ph-stamp" style={{ fontSize: '16px' }} /> Approvals
-        </button>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', marginLeft: '12px' }}>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onGoHold}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#d97706', fontWeight: '600' }}
+            title="Antrean Hold Peminjaman Aset oleh AI"
+          >
+            <i className="ph ph-hourglass-high" style={{ fontSize: '16px' }} /> Hold Asset
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={onGoApprovals}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#4f46e5', fontWeight: '600' }}
+            title="Persetujuan Transaksi Peminjaman"
+          >
+            <i className="ph ph-stamp" style={{ fontSize: '16px' }} /> Approvals
+          </button>
+        </div>
       )}
 
       <div className="nav-user-panel">
@@ -412,7 +424,7 @@ function AuthPage({ onAuthSuccess, showToast }) {
 // Asset List Page
 // ---------------------------------------------------------------------
 
-function AssetListPage({ onRegister, onEdit, onChat, onApprovals, showToast, reloadKey }) {
+function AssetListPage({ onRegister, onEdit, onChat, onApprovals, onHoldAssets, showToast, reloadKey }) {
   const [loading, setLoading] = useState(true)
   const [allAssets, setAllAssets] = useState([])
   const [page, setPage] = useState(1)
@@ -515,6 +527,14 @@ function AssetListPage({ onRegister, onEdit, onChat, onApprovals, showToast, rel
       <div className="page-header">
         <h1>Assets Inventory</h1>
         <div className="page-header-actions">
+          <button
+            className="btn btn-outline"
+            onClick={onHoldAssets}
+            title="Antrean Hold Peminjaman Aset oleh AI"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', color: '#b45309', borderColor: '#fde68a' }}
+          >
+            <i className="ph ph-hourglass-high" /> Hold Asset
+          </button>
           <button
             className="btn btn-outline"
             onClick={onApprovals}
@@ -854,6 +874,7 @@ export default function App() {
   const [user, setUser] = useState(() => getStoredUser())
   const [page, setPage] = useState('list') // list | register | form | chat
   const [editingAsset, setEditingAsset] = useState(null)
+  const [selectedApprovalTrxId, setSelectedApprovalTrxId] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const { toasts, push } = useToasts()
 
@@ -903,21 +924,50 @@ export default function App() {
     // AuthProvider wraps so Chat component can access user via useAuth()
     <AuthProvider user={user}>
       <div className="app-shell">
-        <TopNavBar user={user} onLogout={handleLogout} onGoList={goList} onGoApprovals={() => setPage('approval')} page={page} />
+        <TopNavBar
+          user={user}
+          onLogout={handleLogout}
+          onGoList={goList}
+          onGoApprovals={() => {
+            setSelectedApprovalTrxId(null)
+            setPage('approval')
+          }}
+          onGoHold={() => setPage('hold')}
+          page={page}
+        />
 
         {page === 'list' && (
           <AssetListPage
             onRegister={() => setPage('register')}
             onEdit={(asset) => { setEditingAsset(asset); setPage('form') }}
             onChat={() => setPage('chat')}
-            onApprovals={() => setPage('approval')}
+            onApprovals={() => {
+              setSelectedApprovalTrxId(null)
+              setPage('approval')
+            }}
+            onHoldAssets={() => setPage('hold')}
             showToast={push}
             reloadKey={reloadKey}
           />
         )}
         {page === 'chat' && <Chat />}
+        {page === 'hold' && (
+          <HoldBorrowPage
+            showToast={push}
+            onBack={goList}
+            onGoApprovals={(targetTrxId) => {
+              if (targetTrxId) setSelectedApprovalTrxId(targetTrxId)
+              setPage('approval')
+            }}
+          />
+        )}
         {page === 'approval' && (
-          <BorrowApprovalPage showToast={push} onBack={goList} />
+          <BorrowApprovalPage
+            showToast={push}
+            onBack={goList}
+            onGoHold={() => setPage('hold')}
+            initialTrxId={selectedApprovalTrxId}
+          />
         )}
         {page === 'register' && (
           <RegistrationFlow

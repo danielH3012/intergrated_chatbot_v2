@@ -40,7 +40,10 @@ export function getAuthHeaders(customHeaders = {}) {
   const user = getStoredUser();
   if (user) {
     if (user.id) headers['X-User-ID'] = String(user.id);
-    if (user.role) headers['X-User-Role'] = user.role;
+    if (user.role) {
+      headers['X-User-Role'] = user.role;
+      headers['X-Role'] = user.role;
+    }
     if (user.username) headers['X-User-Name'] = user.username;
     if (user.company) headers['X-Company'] = user.company;
     if (user.id_perusahaan) headers['X-Company-ID'] = String(user.id_perusahaan);
@@ -330,4 +333,46 @@ export async function createBorrowRequest(payload) {
   });
   return await handleResponse(res);
 }
+
+export async function getHoldBorrowList(status = 'held') {
+  const res = await fetch(`${API_BASE}/api/borrow/hold?status=${encodeURIComponent(status)}`, {
+    headers: getAuthHeaders(),
+  });
+  return await handleResponse(res);
+}
+
+export async function updateHoldBorrow(id, data) {
+  const res = await fetch(`${API_BASE}/api/borrow/hold/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(data),
+  });
+  return await handleResponse(res);
+}
+
+export async function submitHoldBorrow(id, payload = null) {
+  const res = await fetch(`${API_BASE}/api/borrow/hold/${encodeURIComponent(id)}/submit`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
+  return await handleResponse(res);
+}
+
+export async function rejectHoldBorrow(id) {
+  const res = await fetch(`${API_BASE}/api/borrow/hold/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+  });
+  return await handleResponse(res);
+}
+
+export async function restoreHoldBorrow(id) {
+  const res = await fetch(`${API_BASE}/api/borrow/hold/${encodeURIComponent(id)}/restore`, {
+    method: 'POST',
+    headers: getAuthHeaders({ 'Content-Type': 'application/json' }),
+  });
+  return await handleResponse(res);
+}
+
 

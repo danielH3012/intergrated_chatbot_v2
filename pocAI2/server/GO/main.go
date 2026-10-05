@@ -122,12 +122,29 @@ func setupRoutes(app *fiber.App, dbService database.PostgreSQLServicer) {
 	tools.SetupRoutes(api, auth, toolSvc)
 	chat.SetupRoutes(app, auth, chtSvc)
 
-	// 3.5 Borrow Approval & Anomaly Inspection
+	// 3.5 Hold Borrow Queue (AI Borrow Hold & Manual Submit) - Registered before /borrow/:id
+	api.Get("/borrow/hold", controllers.GetHoldBorrowList)
+	api.Post("/borrow/hold", controllers.CreateHoldBorrowRequest)
+	api.Get("/borrow/hold/:id", controllers.GetHoldBorrowDetail)
+	api.Put("/borrow/hold/:id", controllers.UpdateHoldBorrow)
+	api.Patch("/borrow/hold/:id", controllers.UpdateHoldBorrow)
+	api.Post("/borrow/hold/:id/submit", controllers.SubmitHoldBorrow)
+	api.Post("/borrow/hold/:id/approve", controllers.SubmitHoldBorrow)
+	api.Post("/borrow/hold/:id/reject", controllers.RejectHoldBorrow)
+	api.Post("/borrow/hold/:id/restore", controllers.RestoreHoldBorrow)
+
+	// 3.6 Borrow Approval & Anomaly Inspection
 	api.Get("/borrow/approvals", controllers.GetBorrowApprovals)
+	api.Get("/borrow/history/recommendations", controllers.GetBorrowHistoryRecommendations)
+	api.Get("/borrow/anomalies/settings", auth, controllers.GetAnomalySettings)
+	api.Post("/borrow/anomalies/settings", auth, controllers.UpdateAnomalySettings)
+	api.Post("/borrow/request", controllers.CreateBorrowRequest)
+	api.Get("/users/lookup", controllers.LookupUserByName)
+
+	// Parameterized /borrow/:id routes (Must be after static /borrow/* routes)
 	api.Get("/borrow/:id", controllers.GetBorrowTransaction)
 	api.Get("/borrow/:id/anomalies", controllers.CheckBorrowAnomalies)
 	api.Post("/borrow/:id/approve", controllers.ApproveBorrowTransaction)
-	api.Post("/borrow/request", controllers.CreateBorrowRequest)
 
 	// 4. Specialized Media & Stream Handlers
 	api.Post("/pdf", controllers.PdfHandler)
@@ -155,6 +172,8 @@ func main() {
 	// Retain global pool for legacy handlers during gradual migration
 	controllers.DB = pool
 	_ = controllers.EnsureScheduleTable(context.Background())
+	_ = controllers.EnsureBorrowThresholdSettingsTable(context.Background())
+	_ = controllers.EnsureHoldBorrowTable(context.Background())
 
 	app := fiber.New()
 	app.Use(cors.New())

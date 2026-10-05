@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -221,6 +222,10 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 		{Name: "generate_pdf"},
 		{Name: "create_schedule"},
 		{Name: "get_schedules"},
+		{Name: "create_borrow_transaction"},
+		{Name: "get_borrow_transactions"},
+		{Name: "get_borrow_threshold_settings"},
+		{Name: "update_borrow_threshold_settings"},
 		{Name: "no_tools"},
 	}
 
@@ -238,11 +243,23 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 	if hasTool(viewerTools, "create_schedule") {
 		t.Errorf("viewer should NOT have create_schedule")
 	}
+	if hasTool(viewerTools, "create_borrow_transaction") {
+		t.Errorf("viewer should NOT have create_borrow_transaction")
+	}
+	if hasTool(viewerTools, "update_borrow_threshold_settings") {
+		t.Errorf("viewer should NOT have update_borrow_threshold_settings")
+	}
+	if !hasTool(viewerTools, "get_borrow_threshold_settings") {
+		t.Errorf("viewer should have get_borrow_threshold_settings")
+	}
 	if !hasTool(viewerTools, "get_assets") {
 		t.Errorf("viewer should have get_assets")
 	}
 	if !hasTool(viewerTools, "get_schedules") {
 		t.Errorf("viewer should have get_schedules")
+	}
+	if !hasTool(viewerTools, "get_borrow_transactions") {
+		t.Errorf("viewer should have get_borrow_transactions")
 	}
 	if !hasTool(viewerTools, "generate_pdf") {
 		t.Errorf("viewer should have generate_pdf")
@@ -252,6 +269,12 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 	operatorTools := filterRoles(allTools, "operator")
 	if hasTool(operatorTools, "delete_asset") {
 		t.Errorf("operator should NOT have delete_asset")
+	}
+	if hasTool(operatorTools, "update_borrow_threshold_settings") {
+		t.Errorf("operator should NOT have update_borrow_threshold_settings")
+	}
+	if !hasTool(operatorTools, "get_borrow_threshold_settings") {
+		t.Errorf("operator should have get_borrow_threshold_settings")
 	}
 	if !hasTool(operatorTools, "add_asset") {
 		t.Errorf("operator should have add_asset")
@@ -268,6 +291,12 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 	if !hasTool(operatorTools, "get_schedules") {
 		t.Errorf("operator should have get_schedules")
 	}
+	if !hasTool(operatorTools, "create_borrow_transaction") {
+		t.Errorf("operator should have create_borrow_transaction")
+	}
+	if !hasTool(operatorTools, "get_borrow_transactions") {
+		t.Errorf("operator should have get_borrow_transactions")
+	}
 
 	// Admin tools
 	adminTools := filterRoles(allTools, "admin")
@@ -283,12 +312,25 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 	if !hasTool(adminTools, "get_schedules") {
 		t.Errorf("admin should have get_schedules")
 	}
+	if !hasTool(adminTools, "create_borrow_transaction") {
+		t.Errorf("admin should have create_borrow_transaction")
+	}
+	if !hasTool(adminTools, "get_borrow_transactions") {
+		t.Errorf("admin should have get_borrow_transactions")
+	}
+	if !hasTool(adminTools, "get_borrow_threshold_settings") {
+		t.Errorf("admin should have get_borrow_threshold_settings")
+	}
+	if !hasTool(adminTools, "update_borrow_threshold_settings") {
+		t.Errorf("admin should have update_borrow_threshold_settings")
+	}
 
 	// Dynamic intent.TargetTool capability check (unhardcoded)
 	updateIntent := &IntentResult{Category: "update_asset", TargetTool: "update_asset", IsMutation: true}
 	deleteIntent := &IntentResult{Category: "delete_asset", TargetTool: "delete_asset", IsMutation: true, IsDelete: true}
 	queryIntent := &IntentResult{Category: "query_asset", TargetTool: "get_assets"}
 	scheduleIntent := &IntentResult{Category: "create_schedule", TargetTool: "create_schedule", IsMutation: true}
+	borrowIntent := &IntentResult{Category: "create_borrow_transaction", TargetTool: "create_borrow_transaction", IsMutation: true}
 
 	if !hasTool(operatorTools, updateIntent.TargetTool) {
 		t.Errorf("operator should be permitted for update_asset intent")
@@ -304,6 +346,15 @@ func TestRoleBasedToolVisibility(t *testing.T) {
 	}
 	if hasTool(viewerTools, scheduleIntent.TargetTool) {
 		t.Errorf("viewer should NOT be permitted for create_schedule intent")
+	}
+	if !hasTool(operatorTools, borrowIntent.TargetTool) {
+		t.Errorf("operator should be permitted for create_borrow_transaction intent")
+	}
+	if hasTool(viewerTools, borrowIntent.TargetTool) {
+		t.Errorf("viewer should NOT be permitted for create_borrow_transaction intent")
+	}
+	if !hasTool(adminTools, borrowIntent.TargetTool) {
+		t.Errorf("admin should be permitted for create_borrow_transaction intent")
 	}
 	if !hasTool(adminTools, scheduleIntent.TargetTool) {
 		t.Errorf("admin should be permitted for create_schedule intent")
@@ -430,6 +481,110 @@ func TestIsAuditScheduleQuery(t *testing.T) {
 		if isAuditScheduleQuery(q) {
 			t.Errorf("expected %q to NOT be recognized as audit schedule query", q)
 		}
+	}
+}
+
+func TestIsBorrowTransactionQuery(t *testing.T) {
+	validQueries := []string{
+		"pinjam laptop Dell untuk Budi selama 7 hari",
+		"buatkan transaksi peminjaman",
+		"ajukan peminjaman aset AST-6D2933A2",
+		"bikin transaksi pinjam monitor",
+		"saya mau request pinjam laptop",
+		"lihat daftar transaksi peminjaman",
+		"cek status transaksi peminjaman TRX-BRW-001",
+		"tampilkan transaksi peminjaman pending approval",
+	}
+	for _, q := range validQueries {
+		if !isBorrowTransactionQuery(q) {
+			t.Errorf("expected %q to be recognized as borrow transaction query", q)
+		}
+	}
+
+	invalidQueries := []string{
+		"resep nasi goreng",
+		"buatkan saya puisi",
+		"hitung 10 + 5",
+	}
+	for _, q := range invalidQueries {
+		if isBorrowTransactionQuery(q) {
+			t.Errorf("expected %q to NOT be recognized as borrow transaction query", q)
+		}
+	}
+}
+
+func TestParseIntentJSON_BorrowTransactions(t *testing.T) {
+	// Create borrow transaction JSON
+	createRaw := `{"category": "create_borrow_transaction", "target_tool": "create_borrow_transaction", "is_mutation": true, "reason": "user wants to borrow laptop"}`
+	res, err := parseIntentJSON(createRaw)
+	if err != nil {
+		t.Fatalf("unexpected error parsing intent JSON: %v", err)
+	}
+	if res.Category != "create_borrow_transaction" || res.TargetTool != "create_borrow_transaction" || !res.IsMutation || res.IsOffTopic {
+		t.Errorf("expected create_borrow_transaction mutation, got %+v", res)
+	}
+
+	// Tool call fallback
+	rawTool := `<tool_call>{"name": "create_borrow_transaction", "arguments": {"asset_id": "AST-123", "borrower_name": "Budi"}}</tool_call>`
+	resTool, errTool := parseIntentJSON(rawTool)
+	if errTool != nil {
+		t.Fatalf("unexpected error parsing fallback tool call: %v", errTool)
+	}
+	if resTool.Category != "create_borrow_transaction" || resTool.TargetTool != "create_borrow_transaction" || !resTool.IsMutation {
+		t.Errorf("expected create_borrow_transaction via fallback, got %+v", resTool)
+	}
+
+	// View/list borrow transactions
+	viewRaw := `{"category": "get_borrow_transactions", "target_tool": "get_borrow_transactions", "is_mutation": false, "reason": "list pending approvals"}`
+	resView, errView := parseIntentJSON(viewRaw)
+	if errView != nil {
+		t.Fatalf("unexpected error parsing intent JSON: %v", errView)
+	}
+	if resView.Category != "get_borrow_transactions" || resView.TargetTool != "get_borrow_transactions" || resView.IsMutation || resView.IsOffTopic {
+		t.Errorf("expected get_borrow_transactions read-only, got %+v", resView)
+	}
+}
+
+func TestHiddenInternalParamsFromAI(t *testing.T) {
+	dummyTools := []mcp.Tool{
+		{
+			Name: "create_borrow_transaction",
+			InputSchema: mcp.ToolInputSchema{
+				Type: "object",
+				Properties: map[string]any{
+					"asset_id":      map[string]any{"type": "string"},
+					"duration_days": map[string]any{"type": "number"},
+					"borrower_id":   map[string]any{"type": "string"},
+					"manager_id":    map[string]any{"type": "string"},
+					"borrower_name": map[string]any{"type": "string"},
+					"manager_name":  map[string]any{"type": "string"},
+					"credentials":   map[string]any{"type": "object"},
+				},
+				Required: []string{"asset_id", "borrower_id", "manager_id", "borrower_name", "manager_name"},
+			},
+		},
+	}
+
+	filtered := filterRoles(dummyTools, "operator")
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 filtered tool, got %d", len(filtered))
+	}
+	props := filtered[0].InputSchema.Properties
+	for _, p := range []string{"borrower_id", "manager_id", "manager_name", "credentials"} {
+		if _, exists := props[p]; exists {
+			t.Errorf("expected internal param %q to be HIDDEN from AI, but it is present in Properties", p)
+		}
+	}
+	for _, r := range filtered[0].InputSchema.Required {
+		if slices.Contains(INTERNAL_PARAM_NAMES, r) {
+			t.Errorf("expected internal param %q to be removed from Required, but found it", r)
+		}
+	}
+	if _, exists := props["asset_id"]; !exists {
+		t.Errorf("expected asset_id to remain in Properties")
+	}
+	if _, exists := props["borrower_name"]; !exists {
+		t.Errorf("expected borrower_name to remain in Properties for AI input")
 	}
 }
 
@@ -603,6 +758,30 @@ func TestNewServerConnection(t *testing.T) {
 	}
 
 	t.Logf("Successfully connected to MCP server and loaded %d tools!", len(toolsResp.Tools))
+}
+
+func TestFuzzyMatchTypoTolerance(t *testing.T) {
+	cases := []struct {
+		target    string
+		candidate string
+		expected  bool
+	}{
+		{"lenvo", "Lenovo ThinkPad", true},
+		{"thiknpad", "ThinkPad X1", true},
+		{"macbok", "MacBook Pro", true},
+		{"mcbok", "MacBook Air", true},
+		{"monitr", "Monitor LG 27", true},
+		{"logtec", "Logitech Keyboard", true},
+		{"apple", "Dell Inspiron", false},
+		{"motor", "Toyota Avanza", false},
+	}
+
+	for _, c := range cases {
+		got := isFuzzyMatch(c.target, c.candidate)
+		if got != c.expected {
+			t.Errorf("isFuzzyMatch(%q, %q) = %v, expected %v", c.target, c.candidate, got, c.expected)
+		}
+	}
 }
 
 

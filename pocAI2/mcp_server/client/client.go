@@ -43,10 +43,41 @@ func InitLogger() {
 
 // Credentials mirrors the user context injected by the server/session layer.
 type Credentials struct {
-	Token   string `json:"token,omitempty"`
-	UserID  string `json:"user_id,omitempty"`
-	Company string `json:"company,omitempty"`
-	Role    string `json:"role,omitempty"`
+	Token    string `json:"token,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
+	Username string `json:"username,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Company  string `json:"company,omitempty"`
+	Role     string `json:"role,omitempty"`
+}
+
+func (c *Credentials) NormalizedName() string {
+	if c == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.Username) != "" && !strings.EqualFold(c.Username, "anonymous") {
+		return strings.TrimSpace(c.Username)
+	}
+	if strings.TrimSpace(c.Name) != "" {
+		return strings.TrimSpace(c.Name)
+	}
+	if strings.TrimSpace(c.UserID) != "" && !strings.EqualFold(c.UserID, "anonymous") {
+		return strings.TrimSpace(c.UserID)
+	}
+	return ""
+}
+
+func (c *Credentials) NormalizedUserID() string {
+	if c == nil {
+		return ""
+	}
+	if strings.TrimSpace(c.UserID) != "" && !strings.EqualFold(c.UserID, "anonymous") {
+		return strings.TrimSpace(c.UserID)
+	}
+	if strings.TrimSpace(c.Username) != "" && !strings.EqualFold(c.Username, "anonymous") {
+		return strings.TrimSpace(c.Username)
+	}
+	return ""
 }
 
 func (c *Credentials) NormalizedRole() string {

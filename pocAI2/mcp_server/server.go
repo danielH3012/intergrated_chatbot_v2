@@ -21,6 +21,7 @@ func main() {
 	controller.RegisterAssetTools(s)
 	controller.RegisterDocumentTools(s)
 	controller.RegisterScheduleTools(s)
+	controller.RegisterBorrowTools(s)
 	controller.RegisterUtilityTools(s)
 
 	if err := server.ServeStdio(s); err != nil {

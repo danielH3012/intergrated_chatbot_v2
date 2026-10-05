@@ -28,41 +28,54 @@ func resolveIdentifiers(toolCalls []ToolCall, mcpTools []mcp.Tool, accumulatedRe
 			args[k] = v
 		}
 
-		// Direct operations: never hijack update_asset, delete_asset, add_asset, or no_tools with get_assets
-		if fnName == "update_asset" || fnName == "delete_asset" || fnName == "add_asset" || fnName == "no_tools" || fnName == "no_tool" {
-			if fnName == "update_asset" || fnName == "delete_asset" {
-				idVal := strings.TrimSpace(fmt.Sprintf("%v", args["id"]))
-				if idVal == "" || idVal == "<nil>" {
-					idVal = strings.TrimSpace(fmt.Sprintf("%v", args["asset_id"]))
+		// Direct operations: never hijack update_asset, delete_asset, add_asset, create_borrow_transaction, or no_tools with get_assets
+		if fnName == "update_asset" || fnName == "delete_asset" || fnName == "add_asset" || fnName == "create_borrow_transaction" || fnName == "create_transaction" || fnName == "get_borrow_transactions" || fnName == "create_schedule" || fnName == "get_schedules" || fnName == "no_tools" || fnName == "no_tool" {
+		if fnName == "update_asset" || fnName == "delete_asset" || fnName == "create_borrow_transaction" || fnName == "create_transaction" {
+			idVal := strings.TrimSpace(fmt.Sprintf("%v", args["asset_id"]))
+			if idVal == "" || idVal == "<nil>" {
+				idVal = strings.TrimSpace(fmt.Sprintf("%v", args["id"]))
+			}
+			records := findResolverRecords("get_assets", accumulatedResults)
+			// Resolve comma/semicolon-separated asset_id list + single asset_id
+			if len(records) > 0 && idVal != "" && idVal != "<nil>" {
+				parts := strings.FieldsFunc(idVal, func(r rune) bool { return r == ',' || r == ';' })
+				resolvedParts := make([]string, 0, len(parts))
+				changed := false
+				for _, p := range parts {
+					p = strings.TrimSpace(p)
+					if p == "" {
+						continue
+					}
+					if strings.HasPrefix(strings.ToUpper(p), "AST-") {
+						resolvedParts = append(resolvedParts, p)
+						continue
+					}
+					if realID := matchAssetID(p, args, query, records); realID != "" {
+						resolvedParts = append(resolvedParts, realID)
+						changed = true
+						log.Printf("[resolveIdentifiers] Auto-resolved %s asset_id part %q to %v", fnName, p, realID)
+					} else {
+						resolvedParts = append(resolvedParts, p)
+					}
 				}
-				// If id is not formatted as AST- ID, try resolving from accumulated records
-				if !strings.HasPrefix(strings.ToUpper(idVal), "AST-") {
-					records := findResolverRecords("get_assets", accumulatedResults)
-					if len(records) > 0 {
-						idField := inferIdField(records, "id")
-						searchTarget := idVal
-						if searchTarget == "" || searchTarget == "<nil>" {
-							if n, ok := args["name"].(string); ok && n != "" {
-								searchTarget = n
-							} else {
-								searchTarget = query
-							}
-						}
-						for _, r := range records {
-							for _, fv := range r {
-								fvStr := strings.TrimSpace(fmt.Sprintf("%v", fv))
-								if fvStr != "" && (strings.EqualFold(fvStr, searchTarget) || (len(searchTarget) >= 3 && strings.Contains(strings.ToLower(fvStr), strings.ToLower(searchTarget)))) {
-									if realID, ok := r[idField]; ok {
-										args["id"] = realID
-										log.Printf("[resolveIdentifiers] Auto-resolved %s id to %v", fnName, realID)
-										break
-									}
-								}
-							}
-						}
+				if changed && len(resolvedParts) > 0 {
+					joined := strings.Join(resolvedParts, ",")
+					args["asset_id"] = joined
+					args["id"] = joined
+				} else if !strings.HasPrefix(strings.ToUpper(idVal), "AST-") && !strings.ContainsAny(idVal, ",;") {
+					// Single non-ID value: try resolving from accumulated records
+					if realID := matchAssetID(idVal, args, query, records); realID != "" {
+						args["asset_id"] = realID
+						args["id"] = realID
+						log.Printf("[resolveIdentifiers] Auto-resolved %s asset_id to %v", fnName, realID)
 					}
 				}
 			}
+			// Resolve items[].asset_id / items[].asset_name for multi-asset borrow (strict: keep distinct IDs)
+			if (fnName == "create_borrow_transaction" || fnName == "create_transaction") && len(records) > 0 {
+				args["items"] = resolveBorrowItems(args["items"], args, query, records)
+			}
+		}
 			resolvedCalls = append(resolvedCalls, ToolCall{Name: fnName, Arguments: args})
 			continue
 		}
@@ -114,7 +127,7 @@ func resolveIdentifiers(toolCalls []ToolCall, mcpTools []mcp.Tool, accumulatedRe
 			for _, r := range records {
 				for _, fieldVal := range r {
 					valStr := strings.TrimSpace(fmt.Sprintf("%v", fieldVal))
-					if valStr != "" && (strings.EqualFold(valStr, supplied) || (len(supplied) >= 4 && strings.Contains(strings.ToLower(valStr), strings.ToLower(supplied)))) {
+					if valStr != "" && (strings.EqualFold(valStr, supplied) || (len(supplied) >= 4 && strings.Contains(strings.ToLower(valStr), strings.ToLower(supplied))) || isFuzzyMatch(supplied, valStr)) {
 						matchedRecord = r
 						break
 					}
@@ -129,7 +142,7 @@ func resolveIdentifiers(toolCalls []ToolCall, mcpTools []mcp.Tool, accumulatedRe
 				for _, r := range records {
 					for _, fieldVal := range r {
 						valStr := strings.TrimSpace(fmt.Sprintf("%v", fieldVal))
-						if len(valStr) >= 4 && strings.Contains(strings.ToLower(query), strings.ToLower(valStr)) {
+						if len(valStr) >= 4 && (strings.Contains(strings.ToLower(query), strings.ToLower(valStr)) || isFuzzyMatch(valStr, query)) {
 							matchedRecord = r
 							break
 						}
@@ -172,6 +185,106 @@ func resolveIdentifiers(toolCalls []ToolCall, mcpTools []mcp.Tool, accumulatedRe
 	}
 
 	return resolvedCalls
+}
+
+// matchAssetID fuzzy-matches a user-supplied name/keyword to a real AST- ID from get_assets records.
+func matchAssetID(supplied string, args map[string]any, query string, records []map[string]any) string {
+	supplied = strings.TrimSpace(supplied)
+	if supplied == "" || supplied == "<nil>" {
+		if n, ok := args["asset_name"].(string); ok && strings.TrimSpace(n) != "" {
+			supplied = strings.TrimSpace(n)
+		} else if n, ok := args["name"].(string); ok && strings.TrimSpace(n) != "" {
+			supplied = strings.TrimSpace(n)
+		} else {
+			supplied = query
+		}
+	}
+	if supplied == "" {
+		return ""
+	}
+	for _, r := range records {
+		for _, fv := range r {
+			fvStr := strings.TrimSpace(fmt.Sprintf("%v", fv))
+			if fvStr == "" {
+				continue
+			}
+			if strings.EqualFold(fvStr, supplied) || (len(supplied) >= 3 && strings.Contains(strings.ToLower(fvStr), strings.ToLower(supplied))) || isFuzzyMatch(supplied, fvStr) {
+				if realID, ok := r["asset_id"].(string); ok && strings.TrimSpace(realID) != "" {
+					return strings.TrimSpace(realID)
+				}
+				if realID, ok := r["asset_id"]; ok && realID != nil {
+					if s := strings.TrimSpace(fmt.Sprintf("%v", realID)); s != "" {
+						return s
+					}
+				}
+				if realID, ok := r["id"].(string); ok && strings.TrimSpace(realID) != "" {
+					return strings.TrimSpace(realID)
+				}
+				if realID, ok := r["id"]; ok && realID != nil {
+					if s := strings.TrimSpace(fmt.Sprintf("%v", realID)); s != "" {
+						return s
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// resolveBorrowItems resolves items[].asset_id / asset_name entries against get_assets records.
+// Keeps insertion order, preserves per-item duration_days/quantity fields, and never duplicates IDs here
+// (strict quantity enforcement happens in mcp_server).
+func resolveBorrowItems(rawItems any, args map[string]any, query string, records []map[string]any) any {
+	list, ok := rawItems.([]any)
+	if !ok || len(list) == 0 {
+		return rawItems
+	}
+	out := make([]any, 0, len(list))
+	for _, elem := range list {
+		m, ok := elem.(map[string]any)
+		if !ok {
+			if s, ok := elem.(string); ok {
+				s = strings.TrimSpace(s)
+				if s != "" && !strings.HasPrefix(strings.ToUpper(s), "AST-") {
+					if realID := matchAssetID(s, args, query, records); realID != "" {
+						s = realID
+					}
+				}
+				out = append(out, s)
+				continue
+			}
+			out = append(out, elem)
+			continue
+		}
+		cp := make(map[string]any, len(m))
+		for k, v := range m {
+			cp[k] = v
+		}
+		candidate := ""
+		for _, k := range []string{"asset_id", "id", "asset", "code"} {
+			if v, ok := cp[k].(string); ok && strings.TrimSpace(v) != "" {
+				candidate = strings.TrimSpace(v)
+				break
+			}
+		}
+		if candidate == "" {
+			for _, k := range []string{"asset_name", "name", "nama", "title"} {
+				if v, ok := cp[k].(string); ok && strings.TrimSpace(v) != "" {
+					candidate = strings.TrimSpace(v)
+					break
+				}
+			}
+		}
+		if candidate != "" && !strings.HasPrefix(strings.ToUpper(candidate), "AST-") {
+			if realID := matchAssetID(candidate, cp, query, records); realID != "" {
+				cp["asset_id"] = realID
+				cp["id"] = realID
+				log.Printf("[resolveIdentifiers] Auto-resolved borrow items entry %q to %v", candidate, realID)
+			}
+		}
+		out = append(out, cp)
+	}
+	return out
 }
 
 // cek llm isi param dengan bener apa kagak
@@ -304,3 +417,87 @@ func inferResolverMap(mcpTools []mcp.Tool) map[string]string {
 
 	return resolverMap
 }
+
+// isFuzzyMatch checks if two strings match approximately with typo tolerance
+func isFuzzyMatch(target, candidate string) bool {
+	t := strings.TrimSpace(strings.ToLower(target))
+	c := strings.TrimSpace(strings.ToLower(candidate))
+	if t == "" || c == "" {
+		return false
+	}
+	if t == c || strings.Contains(t, c) || strings.Contains(c, t) {
+		return true
+	}
+
+	// Compare individual tokens / words
+	tWords := strings.Fields(t)
+	cWords := strings.Fields(c)
+	for _, tw := range tWords {
+		if len(tw) < 3 {
+			continue
+		}
+		for _, cw := range cWords {
+			if len(cw) < 3 {
+				continue
+			}
+			if tw == cw {
+				return true
+			}
+			dist := levenshteinDistance(tw, cw)
+			if (len(tw) <= 4 && dist <= 1) || (len(tw) > 4 && dist <= 2) {
+				return true
+			}
+		}
+	}
+
+	if len(t) >= 4 && len(c) >= 4 {
+		dist := levenshteinDistance(t, c)
+		if (len(t) <= 6 && dist <= 1) || (len(t) > 6 && dist <= 2) {
+			return true
+		}
+	}
+	return false
+}
+
+func levenshteinDistance(s1, s2 string) int {
+	r1, r2 := []rune(s1), []rune(s2)
+	n1, n2 := len(r1), len(r2)
+	if n1 == 0 {
+		return n2
+	}
+	if n2 == 0 {
+		return n1
+	}
+	dp := make([]int, n2+1)
+	for j := 0; j <= n2; j++ {
+		dp[j] = j
+	}
+	for i := 1; i <= n1; i++ {
+		prev := dp[0]
+		dp[0] = i
+		for j := 1; j <= n2; j++ {
+			temp := dp[j]
+			cost := 0
+			if r1[i-1] != r2[j-1] {
+				cost = 1
+			}
+			dp[j] = min3(dp[j]+1, dp[j-1]+1, prev+cost)
+			prev = temp
+		}
+	}
+	return dp[n2]
+}
+
+func min3(a, b, c int) int {
+	if a < b {
+		if a < c {
+			return a
+		}
+		return c
+	}
+	if b < c {
+		return b
+	}
+	return c
+}
+

@@ -20,6 +20,7 @@ Folder ini berisi script migrasi SQL untuk inisialisasi dan pengelolaan skema ba
 | **000009** | `000009_create_groups_table.up.sql` | `.down.sql` | Tabel `public.groups` (manajemen grup & tim) |
 | **000010** | `000010_create_ai_registration_tables.up.sql` | `.down.sql` | Tabel `ai_registration_sessions` & `ai_registration_drafts` |
 | **000011** | `000011_seed_initial_data.up.sql` | `.down.sql` | Data awal perusahaan, user default, dan aset sampel |
+| **000012** | `000012_create_borrow_threshold_settings_table.up.sql` | `.down.sql` | Tabel `borrow_threshold_settings` (multi-tenant threshold) & auto-creation trigger |
 
 ---
 

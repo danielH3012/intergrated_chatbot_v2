@@ -122,6 +122,25 @@ func main() {
 		if company != "" {
 			userContext["company"] = company
 		}
+		group := strings.TrimSpace(c.Get("X-Group"))
+		if group == "" {
+			group = strings.TrimSpace(c.Get("X-Department"))
+		}
+		if group == "" {
+			group = strings.TrimSpace(c.Get("X-Division"))
+		}
+		if group == "" {
+			group = strings.TrimSpace(c.Query("group_name"))
+		}
+		if group == "" {
+			group = strings.TrimSpace(c.Query("group"))
+		}
+		if group == "" {
+			group = strings.TrimSpace(c.FormValue("group_name"))
+		}
+		if group != "" {
+			userContext["group"] = group
+		}
 
 		chatID := c.Query("chat_id")
 		if chatID == "" {
@@ -206,7 +225,7 @@ func main() {
 		}
 		userContext["has_user_uploaded_file"] = hasUserUploadedFile
 
-		res, err := controller.CallTools(c.Context(), mcpClient, mcpTools, query, role, userContext, 2, model)
+		res, err := controller.CallTools(c.Context(), mcpClient, mcpTools, query, role, userContext, 5, model)
 		if err != nil {
 			return c.Status(500).SendString(err.Error())
 		}

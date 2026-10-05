@@ -146,3 +146,56 @@ CREATE TABLE IF NOT EXISTS public.ai_registration_drafts (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_ai_reg_drafts_session_id ON public.ai_registration_drafts (session_id);
+
+-- 10. Borrow Anomaly Threshold Settings (Multi-tenant)
+CREATE TABLE IF NOT EXISTS public.borrow_threshold_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_name VARCHAR(125) NOT NULL UNIQUE,
+    max_duration_days INT NOT NULL DEFAULT 28,
+    max_active_loans INT NOT NULL DEFAULT 3,
+    max_late_returns INT NOT NULL DEFAULT 2,
+    max_extensions INT NOT NULL DEFAULT 2,
+    max_asset_count INT NOT NULL DEFAULT 5,
+    audit_window_days INT NOT NULL DEFAULT 7,
+    repeat_borrow_cycles INT NOT NULL DEFAULT 2,
+    min_signals_for_review INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE FUNCTION trg_auto_create_borrow_thresholds()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.borrow_threshold_settings (company_name)
+    VALUES (NEW.nama_perusahaan)
+    ON CONFLICT (company_name) DO NOTHING;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_perusahaan_insert_thresholds ON public.perusahaan;
+CREATE TRIGGER trg_perusahaan_insert_thresholds
+AFTER INSERT ON public.perusahaan
+FOR EACH ROW
+EXECUTE FUNCTION trg_auto_create_borrow_thresholds();
+
+-- 11. Hold Borrow Queue (AI-generated borrow requests waiting for manual confirmation)
+CREATE TABLE IF NOT EXISTS public.hold_borrow (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    hold_code VARCHAR(50) NOT NULL UNIQUE,
+    borrower_id TEXT NOT NULL,
+    borrower_name TEXT NOT NULL,
+    manager_id TEXT NOT NULL,
+    manager_name TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    items JSONB NOT NULL DEFAULT '[]'::jsonb,
+    status VARCHAR(50) NOT NULL DEFAULT 'held',
+    notes TEXT DEFAULT 'Created via AI Assistant',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_hold_borrow_status ON public.hold_borrow (status);
+CREATE INDEX IF NOT EXISTS idx_hold_borrow_group ON public.hold_borrow (group_name);
+CREATE INDEX IF NOT EXISTS idx_hold_borrow_borrower ON public.hold_borrow (borrower_id);
+CREATE INDEX IF NOT EXISTS idx_hold_borrow_created_at ON public.hold_borrow (created_at DESC);
