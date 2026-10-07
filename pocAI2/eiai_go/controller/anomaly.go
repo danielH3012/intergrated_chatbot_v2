@@ -28,7 +28,7 @@ func SynthesizeAnomalyNarrative(borrowerName, groupName string, signals []string
 	}
 
 	log.Printf("[anomaly_narrative] Requesting AI narrative for %s (Group: %s) with %d signals...", borrowerName, groupName, len(signals))
-	res, err := ChatGenerate(ctx, messages, nil, 1024, "liquid/lfm-2.5-2.6b:free", 0)
+	res, err := ChatGenerate(ctx, messages, nil, 1024, GeneratorModel, 2)
 	if err != nil {
 		log.Printf("[anomaly_narrative] AI generation failed: %v", err)
 		return "", fmt.Errorf("AI Gateway Error: %v", err)
