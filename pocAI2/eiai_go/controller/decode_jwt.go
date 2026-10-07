@@ -138,21 +138,71 @@ type ChatMessage struct {
 	AttachmentText string          `json:"attachment_text,omitempty"`
 }
 
-var (
-	attachmentCacheMu sync.RWMutex
-	attachmentCache   = make(map[string]string)
-)
-
-func GetCachedAttachmentText(key string) string {
-	attachmentCacheMu.RLock()
-	defer attachmentCacheMu.RUnlock()
-	return attachmentCache[key]
+// attachmentCacheEntry holds extracted text and its expiry timestamp.
+type attachmentCacheEntry struct {
+	text      string
+	expiry    time.Time
+	insertKey string // kept for eviction queue removal
 }
 
+const (
+	attachmentCacheMaxSize = 200           // max entries before evicting oldest
+	attachmentCacheTTL     = 30 * time.Minute // entry lifetime
+)
+
+var (
+	attachmentCacheMu    sync.Mutex
+	attachmentCacheMap   = make(map[string]*attachmentCacheEntry, attachmentCacheMaxSize)
+	attachmentCacheQueue []string // insertion-order key list for FIFO eviction
+)
+
+// GetCachedAttachmentText returns cached text for key if it exists and has not expired.
+func GetCachedAttachmentText(key string) string {
+	attachmentCacheMu.Lock()
+	defer attachmentCacheMu.Unlock()
+	entry, ok := attachmentCacheMap[key]
+	if !ok {
+		return ""
+	}
+	if time.Now().After(entry.expiry) {
+		// Expired: evict immediately
+		delete(attachmentCacheMap, key)
+		return ""
+	}
+	return entry.text
+}
+
+// SetCachedAttachmentText stores text under key with a TTL.
+// If the cache is full, the oldest entry is evicted first.
 func SetCachedAttachmentText(key, text string) {
 	attachmentCacheMu.Lock()
 	defer attachmentCacheMu.Unlock()
-	attachmentCache[key] = text
+
+	// If key already exists, update in-place without changing queue position.
+	if existing, ok := attachmentCacheMap[key]; ok {
+		existing.text = text
+		existing.expiry = time.Now().Add(attachmentCacheTTL)
+		return
+	}
+
+	// Evict expired entries and enforce capacity limit.
+	for len(attachmentCacheMap) >= attachmentCacheMaxSize {
+		// Pop the front of the queue (oldest inserted key)
+		if len(attachmentCacheQueue) == 0 {
+			break
+		}
+		oldestKey := attachmentCacheQueue[0]
+		attachmentCacheQueue = attachmentCacheQueue[1:]
+		delete(attachmentCacheMap, oldestKey)
+		log.Printf("[attachmentCache] Evicted oldest entry to stay within capacity: %q", oldestKey)
+	}
+
+	attachmentCacheMap[key] = &attachmentCacheEntry{
+		text:      text,
+		expiry:    time.Now().Add(attachmentCacheTTL),
+		insertKey: key,
+	}
+	attachmentCacheQueue = append(attachmentCacheQueue, key)
 }
 
 func FetchAttachmentContent(attachURL string, token string) ([]byte, error) {

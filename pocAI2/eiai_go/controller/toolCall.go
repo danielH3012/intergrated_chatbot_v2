@@ -136,6 +136,82 @@ func NewServerConnection() (*client.Client, error) {
 	return c, err
 }
 
+// MCPManager provides thread-safe access to the MCP client with transparent
+// auto-reconnect when the underlying stdio child-process has crashed or exited.
+type MCPManager struct {
+	mu     sync.Mutex
+	client *client.Client
+	tools  []mcp.Tool
+}
+
+// GetClient returns the current live MCP client. If the client appears dead
+// (indicated by a nil value or a prior failure), it attempts to reconnect and
+// refresh the tool list before returning. Callers must not cache the returned
+// *client.Client between requests; always call GetClient per request.
+func (m *MCPManager) GetClient() (*client.Client, []mcp.Tool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.client != nil {
+		return m.client, m.tools, nil
+	}
+	return m.reconnectLocked()
+}
+
+// MarkDead signals that the current client has failed and forces the next
+// GetClient call to reconnect. Safe to call concurrently from request handlers.
+func (m *MCPManager) MarkDead() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	log.Printf("[MCPManager] Marking MCP client as dead — will reconnect on next request")
+	m.client = nil
+	m.tools = nil
+}
+
+// reconnectLocked rebuilds the MCP connection. Must be called with m.mu held.
+func (m *MCPManager) reconnectLocked() (*client.Client, []mcp.Tool, error) {
+	log.Printf("[MCPManager] Attempting MCP reconnect...")
+	c, err := NewServerConnection()
+	if err != nil {
+		log.Printf("[MCPManager] Reconnect failed: %v", err)
+		return nil, nil, fmt.Errorf("MCP reconnect error: %w", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	toolsResp, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		log.Printf("[MCPManager] ListTools after reconnect failed: %v", err)
+		return nil, nil, fmt.Errorf("MCP ListTools error after reconnect: %w", err)
+	}
+
+	m.client = c
+	m.tools = toolsResp.Tools
+	log.Printf("[MCPManager] Reconnected successfully. %d tools available.", len(m.tools))
+	return m.client, m.tools, nil
+}
+
+// SeedInitial populates the manager with an already-established client obtained
+// at startup. It also performs an initial ListTools so that the tool list is
+// available immediately without waiting for the first inbound request.
+func (m *MCPManager) SeedInitial(c *client.Client) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.client = c
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	toolsResp, err := c.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		log.Printf("[MCPManager] SeedInitial ListTools failed (will retry on first request): %v", err)
+		m.client = nil
+		return
+	}
+	m.tools = toolsResp.Tools
+	log.Printf("[MCPManager] SeedInitial: %d tools loaded.", len(m.tools))
+}
+
 func filterRoles(mcp_tools []mcp.Tool, role string) []mcp.Tool {
 	if len(mcp_tools) == 0 {
 		return nil
